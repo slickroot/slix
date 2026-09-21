@@ -459,30 +459,6 @@ mod tests {
         api_client(&server).replies("42", &yesterday())
     }
 
-    fn body_with_one_reply(overrides: serde_json::Value) -> String {
-        let mut tweet = serde_json::json!({
-            "id": "1",
-            "created_at": "2026-09-20T10:00:00.000Z",
-            "text": "a",
-            "public_metrics": {"impression_count": 5, "like_count": 0},
-            "non_public_metrics": {"user_profile_clicks": 4},
-            "referenced_tweets": [{"type": "replied_to", "id": "100"}],
-            "in_reply_to_user_id": "9"
-        });
-        for (field, value) in overrides.as_object().unwrap() {
-            if value.is_null() {
-                tweet.as_object_mut().unwrap().remove(field);
-            } else {
-                tweet[field] = value.clone();
-            }
-        }
-        serde_json::json!({
-            "data": [tweet],
-            "includes": {"users": [{"id": "9", "username": "bob"}]}
-        })
-        .to_string()
-    }
-
     #[test]
     fn replies_keeps_only_replied_to_tweets_and_resolves_username() {
         let body = r#"{"data":[
@@ -539,37 +515,36 @@ mod tests {
 
     #[test]
     fn replies_maps_reply_missing_impressions_to_protocol_error() {
-        let body = body_with_one_reply(serde_json::json!({"public_metrics": {"like_count": 0}}));
+        let body = r#"{"data":[{"id":"1","created_at":"2026-09-20T10:00:00.000Z","text":"a","public_metrics":{"like_count":0},"non_public_metrics":{"user_profile_clicks":4},"referenced_tweets":[{"type":"replied_to","id":"100"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#;
 
-        let err = replies_with_body(200, &body).unwrap_err();
+        let err = replies_with_body(200, body).unwrap_err();
 
         assert!(matches!(err, ApiError::Protocol(_)), "{err:?}");
     }
 
     #[test]
     fn replies_maps_reply_missing_likes_to_protocol_error() {
-        let body =
-            body_with_one_reply(serde_json::json!({"public_metrics": {"impression_count": 5}}));
+        let body = r#"{"data":[{"id":"1","created_at":"2026-09-20T10:00:00.000Z","text":"a","public_metrics":{"impression_count":5},"non_public_metrics":{"user_profile_clicks":4},"referenced_tweets":[{"type":"replied_to","id":"100"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#;
 
-        let err = replies_with_body(200, &body).unwrap_err();
+        let err = replies_with_body(200, body).unwrap_err();
 
         assert!(matches!(err, ApiError::Protocol(_)), "{err:?}");
     }
 
     #[test]
     fn replies_maps_reply_missing_profile_clicks_to_protocol_error() {
-        let body = body_with_one_reply(serde_json::json!({"non_public_metrics": {}}));
+        let body = r#"{"data":[{"id":"1","created_at":"2026-09-20T10:00:00.000Z","text":"a","public_metrics":{"impression_count":5,"like_count":0},"non_public_metrics":{},"referenced_tweets":[{"type":"replied_to","id":"100"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#;
 
-        let err = replies_with_body(200, &body).unwrap_err();
+        let err = replies_with_body(200, body).unwrap_err();
 
         assert!(matches!(err, ApiError::Protocol(_)), "{err:?}");
     }
 
     #[test]
     fn replies_maps_reply_missing_non_public_metrics_to_protocol_error() {
-        let body = body_with_one_reply(serde_json::json!({"non_public_metrics": null}));
+        let body = r#"{"data":[{"id":"1","created_at":"2026-09-20T10:00:00.000Z","text":"a","public_metrics":{"impression_count":5,"like_count":0},"referenced_tweets":[{"type":"replied_to","id":"100"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#;
 
-        let err = replies_with_body(200, &body).unwrap_err();
+        let err = replies_with_body(200, body).unwrap_err();
 
         assert!(matches!(err, ApiError::Protocol(_)), "{err:?}");
     }
