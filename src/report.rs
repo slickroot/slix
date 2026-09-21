@@ -97,6 +97,7 @@ mod tests {
             to_username: "alice".into(),
             impressions: 42,
             likes: 0,
+            profile_visits: 0,
         }
     }
 
@@ -162,6 +163,7 @@ mod tests {
             to_username: to_username.into(),
             impressions,
             likes,
+            profile_visits: 0,
         }
     }
 

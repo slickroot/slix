@@ -377,7 +377,7 @@ mod tests {
         mock_tweets(
             &server,
             200,
-            r#"{"data":[{"id":"7","created_at":"2026-09-20T10:15:00.000Z","text":"hello there","public_metrics":{"impression_count":12,"like_count":3},"referenced_tweets":[{"type":"replied_to","id":"1"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#,
+            r#"{"data":[{"id":"7","created_at":"2026-09-20T10:15:00.000Z","text":"hello there","public_metrics":{"impression_count":12,"like_count":3},"non_public_metrics":{"user_profile_clicks":4},"referenced_tweets":[{"type":"replied_to","id":"1"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#,
         );
         let mut output = Vec::new();
 
