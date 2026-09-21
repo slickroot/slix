@@ -1,6 +1,8 @@
 mod api;
 mod config;
 mod oauth;
+mod report;
+mod window;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = config::Config::load()?;
@@ -11,7 +13,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &config::Config::path(),
         std::io::stdin().lock(),
         std::io::stdout(),
+        chrono::Local::now(),
     )?;
+    Ok(())
+}
+
+fn write_report(
+    api: &api::XApiClient,
+    me: &api::Me,
+    now: chrono::DateTime<chrono::Local>,
+    output: &mut impl std::io::Write,
+) -> Result<(), Box<dyn std::error::Error>> {
+    writeln!(output, "{} · connected", me.handle)?;
+    let replies = api.replies(&me.id, &window::Window::yesterday(now))?;
+    writeln!(output, "{}", report::render(&replies, &chrono::Local))?;
     Ok(())
 }
 
@@ -22,6 +37,7 @@ fn run(
     path: &std::path::Path,
     input: impl std::io::BufRead,
     mut output: impl std::io::Write,
+    now: chrono::DateTime<chrono::Local>,
 ) -> Result<config::Config, Box<dyn std::error::Error>> {
     let api_base = api_base.trim_end_matches('/');
     let oauth_base = oauth_base.trim_end_matches('/');
@@ -37,8 +53,8 @@ fn run(
             reqwest::blocking::Client::new(),
         );
         match api.users_me() {
-            Ok(handle) => {
-                writeln!(output, "{handle} · connected")?;
+            Ok(me) => {
+                write_report(&api, &me, now, &mut output)?;
                 return Ok(config);
             }
             Err(_) => {
@@ -79,8 +95,8 @@ fn run(
             config.access_token_secret.as_deref().unwrap(),
             reqwest::blocking::Client::new(),
         );
-        let handle = api.users_me()?;
-        writeln!(output, "{handle} · connected")?;
+        let me = api.users_me()?;
+        write_report(&api, &me, now, &mut output)?;
     }
 
     Ok(config)
@@ -151,6 +167,19 @@ mod tests {
         })
     }
 
+    fn mock_tweets<'a>(server: &'a MockServer, status: u16, body: &str) -> httpmock::Mock<'a> {
+        server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/2/users/1/tweets");
+            then.status(status).body(body.to_string());
+        })
+    }
+
+    const NO_TWEETS: &str = r#"{"meta":{"result_count":0}}"#;
+
+    fn now() -> chrono::DateTime<chrono::Local> {
+        chrono::Local::now()
+    }
+
     fn api_base(server: &MockServer) -> String {
         format!("{}/2/", server.base_url())
     }
@@ -166,6 +195,7 @@ mod tests {
         mock_access_token(&server, 200);
         let username = "slickroot";
         mock_users_me(&server, 200, username);
+        mock_tweets(&server, 200, NO_TWEETS);
 
         let path = test_dir("first-run").join("config.json");
         let mut output = Vec::new();
@@ -177,6 +207,7 @@ mod tests {
             &path,
             std::io::Cursor::new("123456\n"),
             &mut output,
+            now(),
         )
         .unwrap();
 
@@ -186,9 +217,10 @@ mod tests {
             text.lines().any(|line| line.starts_with(&authorize_url)),
             "{text}"
         );
-        assert_eq!(
-            text.lines().last().unwrap(),
-            format!("@{username} · connected")
+        assert!(
+            text.lines()
+                .any(|line| line == format!("@{username} · connected")),
+            "{text}"
         );
 
         assert!(config.is_connected());
@@ -204,6 +236,7 @@ mod tests {
         let access_token = mock_access_token(&server, 200);
         let username = "slickroot";
         mock_users_me(&server, 200, username);
+        mock_tweets(&server, 200, NO_TWEETS);
 
         let path = test_dir("verify-on-startup").join("config.json");
         let mut output = Vec::new();
@@ -215,11 +248,15 @@ mod tests {
             &path,
             std::io::Cursor::new(""),
             &mut output,
+            now(),
         )
         .unwrap();
 
         let text = String::from_utf8(output).unwrap();
-        assert_eq!(text.trim(), format!("@{username} · connected"));
+        assert_eq!(
+            text.lines().next().unwrap(),
+            format!("@{username} · connected")
+        );
         assert_eq!(request_token.calls(), 0);
         assert_eq!(access_token.calls(), 0);
         assert!(config.is_connected());
@@ -232,6 +269,7 @@ mod tests {
         mock_access_token(&server, 200);
         let username = "slickroot";
         mock_users_me(&server, 401, username);
+        let tweets = mock_tweets(&server, 200, NO_TWEETS);
 
         let path = test_dir("reconnect").join("config.json");
         let mut output = Vec::new();
@@ -243,6 +281,7 @@ mod tests {
             &path,
             std::io::Cursor::new("123456\n"),
             &mut output,
+            now(),
         )
         .unwrap();
 
@@ -251,6 +290,7 @@ mod tests {
         assert_eq!(lines[0], "reconnecting…");
         assert!(lines[1].starts_with(&format!("{}/oauth/authorize?", server.base_url())));
         assert_eq!(lines.len(), 2, "unexpected extra output: {text}");
+        assert_eq!(tweets.calls(), 0);
 
         assert_eq!(config.access_token.as_deref(), Some("AT"));
         assert_eq!(config.access_token_secret.as_deref(), Some("ATS"));
@@ -266,6 +306,7 @@ mod tests {
         let access_token = mock_access_token(&server, 200);
         let username = "slickroot";
         let users_me = mock_users_me(&server, 200, username);
+        mock_tweets(&server, 200, NO_TWEETS);
 
         let path = test_dir("re-open").join("config.json");
 
@@ -277,6 +318,7 @@ mod tests {
             &path,
             std::io::Cursor::new("123456\n"),
             &mut first_output,
+            now(),
         )
         .unwrap();
 
@@ -289,11 +331,15 @@ mod tests {
             &path,
             std::io::Cursor::new(""),
             &mut second_output,
+            now(),
         )
         .unwrap();
 
         let text = String::from_utf8(second_output).unwrap();
-        assert_eq!(text.trim(), format!("@{username} · connected"));
+        assert_eq!(
+            text.lines().next().unwrap(),
+            format!("@{username} · connected")
+        );
         assert_eq!(request_token.calls(), 1);
         assert_eq!(access_token.calls(), 1);
         assert_eq!(users_me.calls(), 2);
@@ -316,10 +362,84 @@ mod tests {
             &path,
             std::io::Cursor::new("123456\n"),
             &mut output,
+            now(),
         );
 
         assert!(result.is_err());
         let text = String::from_utf8(output).unwrap();
         assert!(!text.contains("connected"));
+    }
+
+    #[test]
+    fn connected_path_prints_report_after_handle() {
+        let server = MockServer::start();
+        mock_users_me(&server, 200, "slickroot");
+        mock_tweets(
+            &server,
+            200,
+            r#"{"data":[{"id":"7","created_at":"2026-09-20T10:15:00.000Z","text":"hello there","public_metrics":{"impression_count":12},"referenced_tweets":[{"type":"replied_to","id":"1"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#,
+        );
+        let mut output = Vec::new();
+
+        run(
+            connected_config(),
+            &api_base(&server),
+            &oauth_base(&server),
+            &test_dir("report").join("config.json"),
+            std::io::Cursor::new(""),
+            &mut output,
+            now(),
+        )
+        .unwrap();
+
+        let text = String::from_utf8(output).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "@slickroot · connected");
+        assert_eq!(lines[1], "Yesterday · 1 replies");
+        assert!(lines[2].contains("@bob"), "{text}");
+        assert!(lines[2].contains("12 impressions"), "{text}");
+        assert_eq!(lines.len(), 3, "{text}");
+        assert!(text.ends_with('\n'));
+    }
+
+    #[test]
+    fn empty_day_prints_no_replies_message() {
+        let server = MockServer::start();
+        mock_users_me(&server, 200, "slickroot");
+        mock_tweets(&server, 200, NO_TWEETS);
+        let mut output = Vec::new();
+
+        run(
+            connected_config(),
+            &api_base(&server),
+            &oauth_base(&server),
+            &test_dir("empty-day").join("config.json"),
+            std::io::Cursor::new(""),
+            &mut output,
+            now(),
+        )
+        .unwrap();
+
+        let text = String::from_utf8(output).unwrap();
+        assert!(text.ends_with("No replies yesterday.\n"), "{text}");
+    }
+
+    #[test]
+    fn failed_replies_fetch_propagates_error() {
+        let server = MockServer::start();
+        mock_users_me(&server, 200, "slickroot");
+        mock_tweets(&server, 500, "boom");
+
+        let result = run(
+            connected_config(),
+            &api_base(&server),
+            &oauth_base(&server),
+            &test_dir("replies-failure").join("config.json"),
+            std::io::Cursor::new(""),
+            &mut Vec::new(),
+            now(),
+        );
+
+        assert!(result.is_err());
     }
 }
