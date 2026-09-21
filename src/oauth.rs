@@ -123,6 +123,8 @@ impl PinFlow {
             .post(&self.access_token_endpoint)
             .header(AUTHORIZATION, authorization)
             .send()
+            .map_err(OAuthError::Http)?
+            .error_for_status()
             .map_err(OAuthError::Http)?;
         let params = form_params(&response.text().map_err(OAuthError::Http)?);
         let token = params
@@ -142,7 +144,7 @@ mod tests {
     use super::*;
     use httpmock::MockServer;
 
-    fn flow(server: &MockServer) -> PinFlow {
+    fn pin_flow(server: &MockServer) -> PinFlow {
         PinFlow::for_endpoints(
             &format!("{}/oauth", server.base_url()),
             "test-consumer-key",
@@ -161,7 +163,7 @@ mod tests {
                 .body("oauth_token=RTTOK&oauth_token_secret=RTSEC");
         });
 
-        let mut flow = flow(&server);
+        let mut flow = pin_flow(&server);
         let url = flow.authorize_url().unwrap();
 
         let base = server.base_url();
@@ -194,7 +196,7 @@ mod tests {
             });
         });
 
-        let mut flow = flow(&server);
+        let mut flow = pin_flow(&server);
         flow.authorize_url().unwrap();
         flow.authorize_url().unwrap();
 
@@ -236,7 +238,7 @@ mod tests {
             });
         });
 
-        let mut flow = flow(&server);
+        let mut flow = pin_flow(&server);
         flow.authorize_url().unwrap();
         let (token, secret) = flow.exchange("123456").unwrap();
 
@@ -246,5 +248,44 @@ mod tests {
         let auth = seen_auth.lock().unwrap();
         assert!(auth.contains("oauth_token=\"RTTOK\""), "{auth}");
         assert!(auth.contains("oauth_verifier=\"123456\""), "{auth}");
+    }
+
+    #[test]
+    fn exchange_maps_http_and_protocol_failures_to_errors() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::POST)
+                .path("/oauth/request_token");
+            then.status(200)
+                .body("oauth_token=RTTOK&oauth_token_secret=RTSEC");
+        });
+        server.mock(|when, then| {
+            when.method(httpmock::Method::POST)
+                .path("/oauth/access_token");
+            then.status(401).body("denied");
+        });
+
+        let mut flow = pin_flow(&server);
+        flow.authorize_url().unwrap();
+        let err = flow.exchange("123456").unwrap_err();
+        assert!(matches!(err, OAuthError::Http(_)), "{err:?}");
+
+        server.reset();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::POST)
+                .path("/oauth/request_token");
+            then.status(200)
+                .body("oauth_token=RTTOK&oauth_token_secret=RTSEC");
+        });
+        server.mock(|when, then| {
+            when.method(httpmock::Method::POST)
+                .path("/oauth/access_token");
+            then.status(200).body("not-a-token-pair");
+        });
+
+        let mut flow = pin_flow(&server);
+        flow.authorize_url().unwrap();
+        let err = flow.exchange("123456").unwrap_err();
+        assert!(matches!(err, OAuthError::Protocol(_)), "{err:?}");
     }
 }
