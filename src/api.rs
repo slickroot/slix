@@ -67,6 +67,26 @@ pub struct Reply {
 struct TweetsResponse {
     #[serde(default)]
     data: Vec<Tweet>,
+    #[serde(default)]
+    includes: Includes,
+}
+
+#[derive(Deserialize, Default)]
+struct Includes {
+    #[serde(default)]
+    users: Vec<IncludedUser>,
+}
+
+#[derive(Deserialize)]
+struct IncludedUser {
+    id: String,
+    username: String,
+}
+
+#[derive(Deserialize)]
+struct ReferencedTweet {
+    #[serde(rename = "type")]
+    kind: String,
 }
 
 #[derive(Deserialize)]
@@ -75,6 +95,9 @@ struct Tweet {
     created_at: DateTime<Utc>,
     text: String,
     public_metrics: PublicMetrics,
+    #[serde(default)]
+    referenced_tweets: Vec<ReferencedTweet>,
+    in_reply_to_user_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -174,25 +197,49 @@ impl XApiClient {
             Some(&self.access_token),
             Some(signed_params),
         );
-        let body = self
+        let response = self
             .client
             .get(&url)
             .query(&query)
             .header(AUTHORIZATION, authorization)
             .send()
+            .map_err(ApiError::Http)?;
+        let status = response.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+            return Err(ApiError::NeedsReconnect);
+        }
+        let body = response
+            .error_for_status()
             .map_err(ApiError::Http)?
             .text()
             .map_err(ApiError::Http)?;
         let tweets: TweetsResponse =
             serde_json::from_str(&body).map_err(|e| ApiError::Protocol(e.to_string()))?;
+        let usernames: HashMap<&str, &str> = tweets
+            .includes
+            .users
+            .iter()
+            .map(|user| (user.id.as_str(), user.username.as_str()))
+            .collect();
         Ok(tweets
             .data
-            .into_iter()
+            .iter()
+            .filter(|tweet| {
+                tweet
+                    .referenced_tweets
+                    .iter()
+                    .any(|referenced| referenced.kind == "replied_to")
+            })
             .map(|tweet| Reply {
-                id: tweet.id,
+                id: tweet.id.clone(),
                 created_at: tweet.created_at,
-                text: tweet.text,
-                to_username: String::new(),
+                text: tweet.text.clone(),
+                to_username: tweet
+                    .in_reply_to_user_id
+                    .as_deref()
+                    .and_then(|id| usernames.get(id))
+                    .map(|username| username.to_string())
+                    .unwrap_or_default(),
                 impressions: tweet.public_metrics.impression_count,
             })
             .collect())
@@ -361,7 +408,7 @@ mod tests {
                 httpmock::HttpMockResponse::builder()
                     .status(200)
                     .body(
-                        r#"{"data":[{"id":"7","created_at":"2026-09-20T10:15:00.000Z","text":"hi","public_metrics":{"impression_count":12}}]}"#,
+                        r#"{"data":[{"id":"7","created_at":"2026-09-20T10:15:00.000Z","text":"hi","public_metrics":{"impression_count":12},"referenced_tweets":[{"type":"replied_to","id":"1"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#,
                     )
                     .build()
             });
@@ -381,5 +428,86 @@ mod tests {
         assert!(auth.starts_with("OAuth "), "{auth}");
         assert!(auth.contains("oauth_token=\"test-access-token\""), "{auth}");
         assert!(auth.contains("oauth_signature=\""), "{auth}");
+    }
+
+    fn yesterday() -> Window {
+        use chrono::TimeZone;
+        Window {
+            start: Utc.with_ymd_and_hms(2026, 9, 20, 0, 0, 0).unwrap(),
+            end: Utc.with_ymd_and_hms(2026, 9, 21, 0, 0, 0).unwrap(),
+        }
+    }
+
+    fn replies_with_body(status: u16, body: &str) -> Result<Vec<Reply>, ApiError> {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::GET)
+                .path("/2/users/42/tweets");
+            then.status(status).body(body);
+        });
+        api_client(&server).replies("42", &yesterday())
+    }
+
+    #[test]
+    fn replies_keeps_only_replied_to_tweets_and_resolves_username() {
+        let body = r#"{"data":[
+            {"id":"1","created_at":"2026-09-20T10:00:00.000Z","text":"a","public_metrics":{"impression_count":5},"referenced_tweets":[{"type":"replied_to","id":"100"}],"in_reply_to_user_id":"9"},
+            {"id":"2","created_at":"2026-09-20T11:00:00.000Z","text":"plain","public_metrics":{"impression_count":6}},
+            {"id":"3","created_at":"2026-09-20T12:00:00.000Z","text":"quote","public_metrics":{"impression_count":7},"referenced_tweets":[{"type":"quoted","id":"101"}]},
+            {"id":"4","created_at":"2026-09-20T13:00:00.000Z","text":"b","public_metrics":{"impression_count":8},"referenced_tweets":[{"type":"quoted","id":"101"},{"type":"replied_to","id":"102"}],"in_reply_to_user_id":"10"}
+        ],"includes":{"users":[{"id":"9","username":"bob"},{"id":"10","username":"carol"}]}}"#;
+
+        let replies = replies_with_body(200, body).unwrap();
+
+        assert_eq!(replies.len(), 2);
+        assert_eq!(replies[0].id, "1");
+        assert_eq!(replies[0].to_username, "bob");
+        assert_eq!(replies[0].impressions, 5);
+        assert_eq!(replies[1].id, "4");
+        assert_eq!(replies[1].to_username, "carol");
+    }
+
+    #[test]
+    fn replies_returns_empty_when_response_has_no_data() {
+        let replies = replies_with_body(200, r#"{"meta":{"result_count":0}}"#).unwrap();
+
+        assert!(replies.is_empty());
+    }
+
+    #[test]
+    fn replies_maps_401_to_needs_reconnect() {
+        let err = replies_with_body(401, "unauthorized").unwrap_err();
+
+        assert!(matches!(err, ApiError::NeedsReconnect), "{err:?}");
+    }
+
+    #[test]
+    fn replies_maps_403_to_needs_reconnect() {
+        let err = replies_with_body(403, "forbidden").unwrap_err();
+
+        assert!(matches!(err, ApiError::NeedsReconnect), "{err:?}");
+    }
+
+    #[test]
+    fn replies_maps_500_to_http_error() {
+        let err = replies_with_body(500, "boom").unwrap_err();
+
+        assert!(matches!(err, ApiError::Http(_)), "{err:?}");
+    }
+
+    #[test]
+    fn replies_maps_malformed_body_to_protocol_error() {
+        let err = replies_with_body(200, "not json").unwrap_err();
+
+        assert!(matches!(err, ApiError::Protocol(_)), "{err:?}");
+    }
+
+    #[test]
+    fn replies_maps_reply_missing_impressions_to_protocol_error() {
+        let body = r#"{"data":[{"id":"1","created_at":"2026-09-20T10:00:00.000Z","text":"a","public_metrics":{},"referenced_tweets":[{"type":"replied_to","id":"100"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#;
+
+        let err = replies_with_body(200, body).unwrap_err();
+
+        assert!(matches!(err, ApiError::Protocol(_)), "{err:?}");
     }
 }
