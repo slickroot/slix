@@ -153,4 +153,13 @@ mod tests {
         assert!(!only_access_token_secret.is_connected());
         assert!(!neither.is_connected());
     }
+
+    #[test]
+    fn path_is_config_dir_joined_with_slix_config_json() {
+        let expected = dirs::config_dir()
+            .unwrap()
+            .join("slix")
+            .join("config.json");
+        assert_eq!(Config::path(), expected);
+    }
 }
