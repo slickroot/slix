@@ -2,26 +2,50 @@ use crate::api::Reply;
 use chrono::TimeZone;
 
 const PREVIEW_LIMIT: usize = 50;
+const PREVIEW_WIDTH: usize = PREVIEW_LIMIT + 1;
 
 pub fn render<Tz: TimeZone>(replies: &[Reply], tz: &Tz) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
-    replies
+    let header = format!("Yesterday · {} replies", replies.len());
+    if replies.is_empty() {
+        return format!("{header}\nNo replies yesterday.");
+    }
+    let mut newest_first: Vec<&Reply> = replies.iter().collect();
+    newest_first.sort_by_key(|reply| std::cmp::Reverse(reply.created_at));
+    let handle_width = newest_first
         .iter()
-        .map(|reply| render_line(reply, tz))
+        .map(|reply| reply.to_username.chars().count() + 1)
+        .max()
+        .unwrap_or(0);
+    let impressions_width = newest_first
+        .iter()
+        .map(|reply| reply.impressions.to_string().len())
+        .max()
+        .unwrap_or(0);
+    let lines = newest_first
+        .iter()
+        .map(|reply| render_line(reply, tz, handle_width, impressions_width));
+    std::iter::once(header)
+        .chain(lines)
         .collect::<Vec<_>>()
         .join("\n")
 }
 
-fn render_line<Tz: TimeZone>(reply: &Reply, tz: &Tz) -> String
+fn render_line<Tz: TimeZone>(
+    reply: &Reply,
+    tz: &Tz,
+    handle_width: usize,
+    impressions_width: usize,
+) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
     let time = reply.created_at.with_timezone(tz).format("%H:%M");
+    let handle = format!("@{}", reply.to_username);
     format!(
-        "{time}  @{}  {}  {} impressions  {}",
-        reply.to_username,
+        "{time}  {handle:<handle_width$}  {:<PREVIEW_WIDTH$}  {:>impressions_width$} impressions  {}",
         preview(&reply.text),
         reply.impressions,
         link(&reply.id)
@@ -73,7 +97,7 @@ mod tests {
     fn collapses_newlines_in_preview() {
         let out = render(&[reply("a\nb\r\nc")], &tz());
         assert!(out.contains("a b  c"));
-        assert!(!out.contains('\n'));
+        assert_eq!(out.lines().count(), 2);
     }
 
     #[test]
@@ -96,5 +120,62 @@ mod tests {
     fn links_with_osc8_hyperlink() {
         let out = render(&[reply("hi")], &tz());
         assert!(out.ends_with("\x1b]8;;https://x.com/i/status/123\x1b\\[link]\x1b]8;;\x1b\\"));
+    }
+
+    fn reply_at(created_at: &str, to_username: &str, text: &str, impressions: u64) -> Reply {
+        Reply {
+            id: "1".into(),
+            created_at: created_at.parse::<DateTime<Utc>>().unwrap(),
+            text: text.into(),
+            to_username: to_username.into(),
+            impressions,
+        }
+    }
+
+    #[test]
+    fn aligns_columns_across_replies() {
+        let out = render(
+            &[
+                reply_at("2026-03-10T10:00:00Z", "al", "short", 5),
+                reply_at("2026-03-10T09:00:00Z", "bobby", "longer text", 1234),
+            ],
+            &tz(),
+        );
+        let preview_width = PREVIEW_WIDTH;
+        let lines: Vec<&str> = out.lines().skip(1).collect();
+        assert!(lines[0].contains(&format!(
+            "@al     {:<preview_width$}     5 impressions",
+            "short"
+        )));
+        assert!(lines[1].contains(&format!(
+            "@bobby  {:<preview_width$}  1234 impressions",
+            "longer text"
+        )));
+    }
+
+    #[test]
+    fn lists_newest_first() {
+        let out = render(
+            &[
+                reply_at("2026-03-10T08:00:00Z", "old", "x", 1),
+                reply_at("2026-03-10T20:00:00Z", "new", "x", 1),
+            ],
+            &tz(),
+        );
+        assert!(out.find("@new").unwrap() < out.find("@old").unwrap());
+    }
+
+    #[test]
+    fn starts_with_header_counting_replies() {
+        let out = render(&[reply("a"), reply("b")], &tz());
+        assert!(out.starts_with("Yesterday · 2 replies\n"));
+    }
+
+    #[test]
+    fn says_so_when_there_are_no_replies() {
+        assert_eq!(
+            render(&[], &tz()),
+            "Yesterday · 0 replies\nNo replies yesterday."
+        );
     }
 }
