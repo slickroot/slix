@@ -27,6 +27,7 @@ where
 struct Widths {
     handle: usize,
     impressions: usize,
+    likes: usize,
 }
 
 impl Widths {
@@ -42,6 +43,11 @@ impl Widths {
                 .map(|reply| reply.impressions.to_string().len())
                 .max()
                 .unwrap_or(0),
+            likes: replies
+                .iter()
+                .map(|reply| reply.likes.to_string().len())
+                .max()
+                .unwrap_or(0),
         }
     }
 }
@@ -54,10 +60,12 @@ where
     let handle = format!("@{}", reply.to_username);
     let handle_width = widths.handle;
     let impressions_width = widths.impressions;
+    let likes_width = widths.likes;
     format!(
-        "{time}  {handle:<handle_width$}  {:<PREVIEW_WIDTH$}  {:>impressions_width$} impressions  {}",
+        "{time}  {handle:<handle_width$}  {:<PREVIEW_WIDTH$}  {:>impressions_width$} impressions  {:>likes_width$} likes  {}",
         preview(&reply.text),
         reply.impressions,
+        reply.likes,
         link(&reply.id)
     )
 }
@@ -133,34 +141,68 @@ mod tests {
         assert!(out.ends_with("\x1b]8;;https://x.com/i/status/123\x1b\\[link]\x1b]8;;\x1b\\"));
     }
 
-    fn reply_at(created_at: &str, to_username: &str, text: &str, impressions: u64) -> Reply {
+    fn reply_with_likes(likes: u64) -> Reply {
+        Reply {
+            likes,
+            ..reply("hi")
+        }
+    }
+
+    fn reply_at(
+        created_at: &str,
+        to_username: &str,
+        text: &str,
+        impressions: u64,
+        likes: u64,
+    ) -> Reply {
         Reply {
             id: "1".into(),
             created_at: created_at.parse::<DateTime<Utc>>().unwrap(),
             text: text.into(),
             to_username: to_username.into(),
             impressions,
-            likes: 0,
+            likes,
         }
+    }
+
+    #[test]
+    fn shows_zero_likes() {
+        let out = render(&[reply_with_likes(0)], &tz());
+        assert!(out.contains("0 likes"));
+    }
+
+    #[test]
+    fn uses_the_word_likes_for_a_single_like() {
+        let out = render(&[reply_with_likes(1)], &tz());
+        assert!(out.contains("1 likes"));
+    }
+
+    #[test]
+    fn puts_likes_between_impressions_and_link() {
+        let out = render(&[reply_with_likes(7)], &tz());
+        let impressions = out.find("42 impressions").unwrap();
+        let likes = out.find("7 likes").unwrap();
+        let link = out.find("[link]").unwrap();
+        assert!(impressions < likes && likes < link);
     }
 
     #[test]
     fn aligns_columns_across_replies() {
         let out = render(
             &[
-                reply_at("2026-03-10T10:00:00Z", "al", "short", 5),
-                reply_at("2026-03-10T09:00:00Z", "bobby", "longer text", 1234),
+                reply_at("2026-03-10T10:00:00Z", "al", "short", 5, 5),
+                reply_at("2026-03-10T09:00:00Z", "bobby", "longer text", 1234, 1234),
             ],
             &tz(),
         );
         let preview_width = PREVIEW_WIDTH;
         let lines: Vec<&str> = out.lines().skip(1).collect();
         assert!(lines[0].contains(&format!(
-            "@al     {:<preview_width$}     5 impressions",
+            "@al     {:<preview_width$}     5 impressions     5 likes",
             "short"
         )));
         assert!(lines[1].contains(&format!(
-            "@bobby  {:<preview_width$}  1234 impressions",
+            "@bobby  {:<preview_width$}  1234 impressions  1234 likes",
             "longer text"
         )));
     }
@@ -169,8 +211,8 @@ mod tests {
     fn lists_newest_first() {
         let out = render(
             &[
-                reply_at("2026-03-10T08:00:00Z", "old", "x", 1),
-                reply_at("2026-03-10T20:00:00Z", "new", "x", 1),
+                reply_at("2026-03-10T08:00:00Z", "old", "x", 1, 0),
+                reply_at("2026-03-10T20:00:00Z", "new", "x", 1, 0),
             ],
             &tz(),
         );
