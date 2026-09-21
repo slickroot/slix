@@ -112,4 +112,20 @@ mod tests {
         let loaded = Config::load_from(&path).unwrap();
         assert_eq!(loaded, cfg);
     }
+
+    #[test]
+    #[cfg(unix)]
+    fn save_writes_file_with_mode_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = test_dir("mode").join("config.json");
+        let cfg = Config {
+            consumer_key: "k".into(),
+            consumer_secret: "s".into(),
+            access_token: Some("t".into()),
+            access_token_secret: Some("ts".into()),
+        };
+        cfg.save_to(&path).unwrap();
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
 }
