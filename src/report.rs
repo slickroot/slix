@@ -78,6 +78,7 @@ mod tests {
             text: text.into(),
             to_username: "alice".into(),
             impressions: 42,
+            likes: 0,
         }
     }
 
@@ -129,6 +130,7 @@ mod tests {
             text: text.into(),
             to_username: to_username.into(),
             impressions,
+            likes: 0,
         }
     }
 
