@@ -98,4 +98,18 @@ mod tests {
         assert!(cfg.access_token_secret.is_none());
         assert!(!cfg.is_connected());
     }
+
+    #[test]
+    fn save_then_load_round_trips_all_fields() {
+        let path = test_dir("roundtrip").join("config.json");
+        let cfg = Config {
+            consumer_key: "test-consumer-key".into(),
+            consumer_secret: "test-consumer-secret".into(),
+            access_token: Some("test-access-token".into()),
+            access_token_secret: Some("test-access-token-secret".into()),
+        };
+        cfg.save_to(&path).unwrap();
+        let loaded = Config::load_from(&path).unwrap();
+        assert_eq!(loaded, cfg);
+    }
 }
