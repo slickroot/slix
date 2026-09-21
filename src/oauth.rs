@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -74,9 +75,19 @@ impl PinFlow {
     }
 
     pub fn authorize_url(&mut self) -> Result<String, OAuthError> {
+        let mut params = HashMap::new();
+        params.insert("oauth_callback", Cow::Borrowed("oob"));
+        let authorization = oauth1::authorize(
+            "POST",
+            &self.request_token_endpoint,
+            &self.consumer,
+            None,
+            Some(params),
+        );
         let response = self
             .client
             .post(&self.request_token_endpoint)
+            .header(AUTHORIZATION, authorization)
             .send()
             .map_err(OAuthError::Http)?
             .error_for_status()
@@ -126,5 +137,40 @@ mod tests {
             "{url}"
         );
         assert!(url.contains("oauth_token=RTTOK"), "{url}");
+    }
+
+    #[test]
+    fn authorize_url_sends_signed_request_with_callback_and_fresh_nonce() {
+        let server = MockServer::start();
+        let seen_headers = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let seen_headers_for_mock = std::sync::Arc::clone(&seen_headers);
+        server.mock(|when, then| {
+            when.method(httpmock::Method::POST)
+                .path("/oauth/request_token");
+            then.respond_with(move |req: &httpmock::HttpMockRequest| {
+                let auth = req
+                    .headers()
+                    .get("authorization")
+                    .map(|value| value.to_str().unwrap().to_string())
+                    .unwrap_or_default();
+                seen_headers_for_mock.lock().unwrap().push(auth);
+                httpmock::HttpMockResponse::builder()
+                    .status(200)
+                    .body("oauth_token=RTTOK&oauth_token_secret=RTSEC")
+                    .build()
+            });
+        });
+
+        let mut flow = flow(&server);
+        flow.authorize_url().unwrap();
+        flow.authorize_url().unwrap();
+
+        let headers = seen_headers.lock().unwrap();
+        assert_eq!(headers.len(), 2);
+        for header in headers.iter() {
+            assert!(header.starts_with("OAuth "), "{header}");
+            assert!(header.contains("oauth_callback=\"oob\""), "{header}");
+        }
+        assert_ne!(headers[0], headers[1], "each call must use a fresh nonce");
     }
 }
