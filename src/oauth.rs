@@ -48,15 +48,6 @@ fn form_params(body: &str) -> HashMap<String, String> {
 }
 
 impl PinFlow {
-    pub fn new(consumer_key: &str, consumer_secret: &str) -> Self {
-        Self::for_endpoints(
-            "https://api.x.com/oauth",
-            consumer_key,
-            consumer_secret,
-            Client::new(),
-        )
-    }
-
     pub fn for_endpoints(
         base_url: &str,
         consumer_key: &str,

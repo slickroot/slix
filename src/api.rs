@@ -51,22 +51,6 @@ struct UserMeData {
 }
 
 impl XApiClient {
-    pub fn new(
-        consumer_key: &str,
-        consumer_secret: &str,
-        access_token: &str,
-        access_token_secret: &str,
-    ) -> Self {
-        Self::for_endpoint(
-            "https://api.x.com/2/",
-            consumer_key,
-            consumer_secret,
-            access_token,
-            access_token_secret,
-            Client::new(),
-        )
-    }
-
     pub fn for_endpoint(
         base_url: &str,
         consumer_key: &str,
