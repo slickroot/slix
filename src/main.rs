@@ -220,8 +220,8 @@ mod tests {
 
         let text = String::from_utf8(output).unwrap();
         assert_eq!(text.trim(), format!("@{username} · connected"));
-        assert_eq!(request_token.hits(), 0);
-        assert_eq!(access_token.hits(), 0);
+        assert_eq!(request_token.calls(), 0);
+        assert_eq!(access_token.calls(), 0);
         assert!(config.is_connected());
     }
 
@@ -294,9 +294,9 @@ mod tests {
 
         let text = String::from_utf8(second_output).unwrap();
         assert_eq!(text.trim(), format!("@{username} · connected"));
-        assert_eq!(request_token.hits(), 1);
-        assert_eq!(access_token.hits(), 1);
-        assert_eq!(users_me.hits(), 2);
+        assert_eq!(request_token.calls(), 1);
+        assert_eq!(access_token.calls(), 1);
+        assert_eq!(users_me.calls(), 2);
     }
 
     #[test]
