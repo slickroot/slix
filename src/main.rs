@@ -258,4 +258,44 @@ mod tests {
         assert_eq!(persisted.access_token.as_deref(), Some("AT"));
         assert_eq!(persisted.access_token_secret.as_deref(), Some("ATS"));
     }
+
+    #[test]
+    fn re_open_with_persisted_tokens_stays_connected_without_oauth() {
+        let server = MockServer::start();
+        let request_token = mock_request_token(&server);
+        let access_token = mock_access_token(&server, 200);
+        let username = "slickroot";
+        let users_me = mock_users_me(&server, 200, username);
+
+        let path = test_dir("re-open").join("config.json");
+
+        let mut first_output = Vec::new();
+        run(
+            unused_config(),
+            &api_base(&server),
+            &oauth_base(&server),
+            &path,
+            std::io::Cursor::new("123456\n"),
+            &mut first_output,
+        )
+        .unwrap();
+
+        let reopened = config::Config::load_from(&path).unwrap();
+        let mut second_output = Vec::new();
+        run(
+            reopened,
+            &api_base(&server),
+            &oauth_base(&server),
+            &path,
+            std::io::Cursor::new(""),
+            &mut second_output,
+        )
+        .unwrap();
+
+        let text = String::from_utf8(second_output).unwrap();
+        assert_eq!(text.trim(), format!("@{username} · connected"));
+        assert_eq!(request_token.hits(), 1);
+        assert_eq!(access_token.hits(), 1);
+        assert_eq!(users_me.hits(), 2);
+    }
 }
