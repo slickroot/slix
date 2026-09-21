@@ -298,4 +298,28 @@ mod tests {
         assert_eq!(access_token.hits(), 1);
         assert_eq!(users_me.hits(), 2);
     }
+
+    #[test]
+    fn first_run_exchange_failure_propagates_error() {
+        let server = MockServer::start();
+        mock_request_token(&server);
+        mock_access_token(&server, 401);
+        mock_users_me(&server, 200, "slickroot");
+
+        let path = test_dir("exchange-failure").join("config.json");
+        let mut output = Vec::new();
+
+        let result = run(
+            unused_config(),
+            &api_base(&server),
+            &oauth_base(&server),
+            &path,
+            std::io::Cursor::new("123456\n"),
+            &mut output,
+        );
+
+        assert!(result.is_err());
+        let text = String::from_utf8(output).unwrap();
+        assert!(!text.contains("connected"));
+    }
 }
