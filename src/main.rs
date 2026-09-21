@@ -27,6 +27,20 @@ fn run(
     let oauth_base = oauth_base.trim_end_matches('/');
     let mut config = config;
 
+    if config.is_connected() {
+        let api = api::XApiClient::for_endpoint(
+            api_base,
+            &config.consumer_key,
+            &config.consumer_secret,
+            config.access_token.as_deref().unwrap(),
+            config.access_token_secret.as_deref().unwrap(),
+            reqwest::blocking::Client::new(),
+        );
+        let handle = api.users_me()?;
+        writeln!(output, "{handle} · connected")?;
+        return Ok(config);
+    }
+
     let mut flow = oauth::PinFlow::for_endpoints(
         oauth_base,
         &config.consumer_key,
@@ -80,6 +94,15 @@ mod tests {
             consumer_secret: "test-consumer-secret".into(),
             access_token: None,
             access_token_secret: None,
+        }
+    }
+
+    fn connected_config() -> config::Config {
+        config::Config {
+            consumer_key: "test-consumer-key".into(),
+            consumer_secret: "test-consumer-secret".into(),
+            access_token: Some("test-access-token".into()),
+            access_token_secret: Some("test-access-token-secret".into()),
         }
     }
 
@@ -161,5 +184,33 @@ mod tests {
         let persisted = config::Config::load_from(&path).unwrap();
         assert!(persisted.is_connected());
         assert_eq!(persisted, config);
+    }
+
+    #[test]
+    fn verify_on_startup_prints_handle_without_oauth() {
+        let server = MockServer::start();
+        let request_token = mock_request_token(&server);
+        let access_token = mock_access_token(&server, 200);
+        let username = "slickroot";
+        mock_users_me(&server, 200, username);
+
+        let path = test_dir("verify-on-startup").join("config.json");
+        let mut output = Vec::new();
+
+        let config = run(
+            connected_config(),
+            &api_base(&server),
+            &oauth_base(&server),
+            &path,
+            std::io::Cursor::new(""),
+            &mut output,
+        )
+        .unwrap();
+
+        let text = String::from_utf8(output).unwrap();
+        assert_eq!(text.trim(), format!("@{username} · connected"));
+        assert_eq!(request_token.hits(), 0);
+        assert_eq!(access_token.hits(), 0);
+        assert!(config.is_connected());
     }
 }
