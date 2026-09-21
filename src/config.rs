@@ -62,7 +62,9 @@ impl Config {
     }
 
     pub fn save_to(&self, path: &Path) -> Result<(), io::Error> {
-        let parent = path.parent().ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no parent dir for config path"))?;
+        let parent = path.parent().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::NotFound, "no parent dir for config path")
+        })?;
         fs::create_dir_all(parent)?;
         let json = serde_json::to_vec_pretty(self).map_err(io::Error::other)?;
         let mut file = fs::OpenOptions::new()
@@ -84,7 +86,8 @@ mod tests {
     use super::*;
 
     fn test_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("slix-config-test-{}-{name}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("slix-config-test-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -156,10 +159,7 @@ mod tests {
 
     #[test]
     fn path_is_config_dir_joined_with_slix_config_json() {
-        let expected = dirs::config_dir()
-            .unwrap()
-            .join("slix")
-            .join("config.json");
+        let expected = dirs::config_dir().unwrap().join("slix").join("config.json");
         assert_eq!(Config::path(), expected);
     }
 }
