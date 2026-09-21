@@ -28,6 +28,7 @@ struct Widths {
     handle: usize,
     impressions: usize,
     likes: usize,
+    profile_visits: usize,
 }
 
 impl Widths {
@@ -48,6 +49,11 @@ impl Widths {
                 .map(|reply| reply.likes.to_string().len())
                 .max()
                 .unwrap_or(0),
+            profile_visits: replies
+                .iter()
+                .map(|reply| reply.profile_visits.to_string().len())
+                .max()
+                .unwrap_or(0),
         }
     }
 }
@@ -61,11 +67,13 @@ where
     let handle_width = widths.handle;
     let impressions_width = widths.impressions;
     let likes_width = widths.likes;
+    let profile_visits_width = widths.profile_visits;
     format!(
-        "{time}  {handle:<handle_width$}  {:<PREVIEW_WIDTH$}  {:>impressions_width$} impressions  {:>likes_width$} likes  {}",
+        "{time}  {handle:<handle_width$}  {:<PREVIEW_WIDTH$}  {:>impressions_width$} impressions  {:>likes_width$} likes  {:>profile_visits_width$} profile visits  {}",
         preview(&reply.text),
         reply.impressions,
         reply.likes,
+        reply.profile_visits,
         link(&reply.id)
     )
 }
@@ -155,6 +163,7 @@ mod tests {
         text: &str,
         impressions: u64,
         likes: u64,
+        profile_visits: u64,
     ) -> Reply {
         Reply {
             id: "1".into(),
@@ -163,8 +172,36 @@ mod tests {
             to_username: to_username.into(),
             impressions,
             likes,
-            profile_visits: 0,
+            profile_visits,
         }
+    }
+
+    fn reply_with_profile_visits(profile_visits: u64) -> Reply {
+        Reply {
+            profile_visits,
+            ..reply("hi")
+        }
+    }
+
+    #[test]
+    fn shows_zero_profile_visits() {
+        let out = render(&[reply_with_profile_visits(0)], &tz());
+        assert!(out.contains("0 profile visits"));
+    }
+
+    #[test]
+    fn uses_the_word_visits_for_a_single_profile_visit() {
+        let out = render(&[reply_with_profile_visits(1)], &tz());
+        assert!(out.contains("1 profile visits"));
+    }
+
+    #[test]
+    fn puts_profile_visits_between_likes_and_link() {
+        let out = render(&[reply_with_profile_visits(7)], &tz());
+        let likes = out.find("0 likes").unwrap();
+        let visits = out.find("7 profile visits").unwrap();
+        let link = out.find("[link]").unwrap();
+        assert!(likes < visits && visits < link);
     }
 
     #[test]
@@ -192,19 +229,26 @@ mod tests {
     fn aligns_columns_across_replies() {
         let out = render(
             &[
-                reply_at("2026-03-10T10:00:00Z", "al", "short", 5, 5),
-                reply_at("2026-03-10T09:00:00Z", "bobby", "longer text", 1234, 1234),
+                reply_at("2026-03-10T10:00:00Z", "al", "short", 5, 5, 5),
+                reply_at(
+                    "2026-03-10T09:00:00Z",
+                    "bobby",
+                    "longer text",
+                    1234,
+                    1234,
+                    1234,
+                ),
             ],
             &tz(),
         );
         let preview_width = PREVIEW_WIDTH;
         let lines: Vec<&str> = out.lines().skip(1).collect();
         assert!(lines[0].contains(&format!(
-            "@al     {:<preview_width$}     5 impressions     5 likes",
+            "@al     {:<preview_width$}     5 impressions     5 likes     5 profile visits",
             "short"
         )));
         assert!(lines[1].contains(&format!(
-            "@bobby  {:<preview_width$}  1234 impressions  1234 likes",
+            "@bobby  {:<preview_width$}  1234 impressions  1234 likes  1234 profile visits",
             "longer text"
         )));
     }
@@ -213,8 +257,8 @@ mod tests {
     fn lists_newest_first() {
         let out = render(
             &[
-                reply_at("2026-03-10T08:00:00Z", "old", "x", 1, 0),
-                reply_at("2026-03-10T20:00:00Z", "new", "x", 1, 0),
+                reply_at("2026-03-10T08:00:00Z", "old", "x", 1, 0, 0),
+                reply_at("2026-03-10T20:00:00Z", "new", "x", 1, 0, 0),
             ],
             &tz(),
         );
