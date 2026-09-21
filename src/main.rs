@@ -27,7 +27,7 @@ fn run(
     let oauth_base = oauth_base.trim_end_matches('/');
     let mut config = config;
 
-    if config.is_connected() {
+    let reconnecting = if config.is_connected() {
         let api = api::XApiClient::for_endpoint(
             api_base,
             &config.consumer_key,
@@ -36,10 +36,19 @@ fn run(
             config.access_token_secret.as_deref().unwrap(),
             reqwest::blocking::Client::new(),
         );
-        let handle = api.users_me()?;
-        writeln!(output, "{handle} · connected")?;
-        return Ok(config);
-    }
+        match api.users_me() {
+            Ok(handle) => {
+                writeln!(output, "{handle} · connected")?;
+                return Ok(config);
+            }
+            Err(_) => {
+                writeln!(output, "reconnecting…")?;
+                true
+            }
+        }
+    } else {
+        false
+    };
 
     let mut flow = oauth::PinFlow::for_endpoints(
         oauth_base,
@@ -61,16 +70,18 @@ fn run(
     config.access_token_secret = Some(access_token_secret);
     config.save_to(path)?;
 
-    let api = api::XApiClient::for_endpoint(
-        api_base,
-        &config.consumer_key,
-        &config.consumer_secret,
-        config.access_token.as_deref().unwrap(),
-        config.access_token_secret.as_deref().unwrap(),
-        reqwest::blocking::Client::new(),
-    );
-    let handle = api.users_me()?;
-    writeln!(output, "{handle} · connected")?;
+    if !reconnecting {
+        let api = api::XApiClient::for_endpoint(
+            api_base,
+            &config.consumer_key,
+            &config.consumer_secret,
+            config.access_token.as_deref().unwrap(),
+            config.access_token_secret.as_deref().unwrap(),
+            reqwest::blocking::Client::new(),
+        );
+        let handle = api.users_me()?;
+        writeln!(output, "{handle} · connected")?;
+    }
 
     Ok(config)
 }
@@ -212,5 +223,39 @@ mod tests {
         assert_eq!(request_token.hits(), 0);
         assert_eq!(access_token.hits(), 0);
         assert!(config.is_connected());
+    }
+
+    #[test]
+    fn reconnect_on_failed_verification_overwrites_tokens() {
+        let server = MockServer::start();
+        mock_request_token(&server);
+        mock_access_token(&server, 200);
+        let username = "slickroot";
+        mock_users_me(&server, 401, username);
+
+        let path = test_dir("reconnect").join("config.json");
+        let mut output = Vec::new();
+
+        let config = run(
+            connected_config(),
+            &api_base(&server),
+            &oauth_base(&server),
+            &path,
+            std::io::Cursor::new("123456\n"),
+            &mut output,
+        )
+        .unwrap();
+
+        let text = String::from_utf8(output).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "reconnecting…");
+        assert!(lines[1].starts_with(&format!("{}/oauth/authorize?", server.base_url())));
+        assert_eq!(lines.len(), 2, "unexpected extra output: {text}");
+
+        assert_eq!(config.access_token.as_deref(), Some("AT"));
+        assert_eq!(config.access_token_secret.as_deref(), Some("ATS"));
+        let persisted = config::Config::load_from(&path).unwrap();
+        assert_eq!(persisted.access_token.as_deref(), Some("AT"));
+        assert_eq!(persisted.access_token_secret.as_deref(), Some("ATS"));
     }
 }
