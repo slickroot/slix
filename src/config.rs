@@ -57,10 +57,6 @@ impl Config {
         }
     }
 
-    pub fn save(&self) -> Result<(), io::Error> {
-        self.save_to(&Self::path())
-    }
-
     pub fn save_to(&self, path: &Path) -> Result<(), io::Error> {
         let parent = path.parent().ok_or_else(|| {
             io::Error::new(io::ErrorKind::NotFound, "no parent dir for config path")
