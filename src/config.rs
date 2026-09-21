@@ -128,4 +128,29 @@ mod tests {
         let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
     }
+
+    #[test]
+    fn is_connected_requires_both_tokens() {
+        let only_access_token = Config {
+            consumer_key: "k".into(),
+            consumer_secret: "s".into(),
+            access_token: Some("t".into()),
+            access_token_secret: None,
+        };
+        let only_access_token_secret = Config {
+            consumer_key: "k".into(),
+            consumer_secret: "s".into(),
+            access_token: None,
+            access_token_secret: Some("ts".into()),
+        };
+        let neither = Config {
+            consumer_key: "k".into(),
+            consumer_secret: "s".into(),
+            access_token: None,
+            access_token_secret: None,
+        };
+        assert!(!only_access_token.is_connected());
+        assert!(!only_access_token_secret.is_connected());
+        assert!(!neither.is_connected());
+    }
 }
