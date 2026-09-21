@@ -39,8 +39,8 @@ fn run(
             reqwest::blocking::Client::new(),
         );
         match api.users_me() {
-            Ok(handle) => {
-                writeln!(output, "{handle} · connected")?;
+            Ok(me) => {
+                writeln!(output, "{} · connected", me.handle)?;
                 return Ok(config);
             }
             Err(_) => {
@@ -81,8 +81,8 @@ fn run(
             config.access_token_secret.as_deref().unwrap(),
             reqwest::blocking::Client::new(),
         );
-        let handle = api.users_me()?;
-        writeln!(output, "{handle} · connected")?;
+        let me = api.users_me()?;
+        writeln!(output, "{} · connected", me.handle)?;
     }
 
     Ok(config)

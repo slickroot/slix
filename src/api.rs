@@ -40,6 +40,12 @@ impl std::error::Error for ApiError {
     }
 }
 
+#[derive(Debug)]
+pub struct Me {
+    pub id: String,
+    pub handle: String,
+}
+
 #[derive(Deserialize)]
 struct UserMe {
     data: UserMeData,
@@ -47,6 +53,7 @@ struct UserMe {
 
 #[derive(Deserialize)]
 struct UserMeData {
+    id: String,
     username: String,
 }
 
@@ -68,7 +75,7 @@ impl XApiClient {
         }
     }
 
-    pub fn users_me(&self) -> Result<String, ApiError> {
+    pub fn users_me(&self) -> Result<Me, ApiError> {
         let authorization = oauth1::authorize(
             "GET",
             &self.endpoint,
@@ -93,7 +100,10 @@ impl XApiClient {
             .map_err(ApiError::Http)?;
         let me: UserMe =
             serde_json::from_str(&body).map_err(|e| ApiError::Protocol(e.to_string()))?;
-        Ok(format!("@{}", me.data.username))
+        Ok(Me {
+            id: me.data.id,
+            handle: format!("@{}", me.data.username),
+        })
     }
 }
 
@@ -114,20 +124,37 @@ mod tests {
     }
 
     #[test]
-    fn users_me_returns_handle_with_at_prefix() {
+    fn users_me_returns_id_and_handle_with_at_prefix() {
         let server = MockServer::start();
+        let id = "2244994945";
         let username = "slickroot";
         server.mock(|when, then| {
             when.method(httpmock::Method::GET).path("/2/users/me");
             then.status(200).body(format!(
-                r#"{{"data":{{"id":"1","name":"Slick Root","username":"{username}"}}}}"#
+                r#"{{"data":{{"id":"{id}","name":"Slick Root","username":"{username}"}}}}"#
             ));
         });
 
         let client = api_client(&server);
-        let handle = client.users_me().unwrap();
+        let me = client.users_me().unwrap();
 
-        assert_eq!(handle, format!("@{username}"));
+        assert_eq!(me.id, id);
+        assert_eq!(me.handle, format!("@{username}"));
+    }
+
+    #[test]
+    fn users_me_maps_missing_id_to_protocol_error() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/2/users/me");
+            then.status(200)
+                .body(r#"{"data":{"name":"Slick Root","username":"slickroot"}}"#);
+        });
+
+        let client = api_client(&server);
+        let err = client.users_me().unwrap_err();
+
+        assert!(matches!(err, ApiError::Protocol(_)), "{err:?}");
     }
 
     #[test]
