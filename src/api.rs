@@ -96,6 +96,10 @@ impl XApiClient {
             .header(AUTHORIZATION, authorization)
             .send()
             .map_err(ApiError::Http)?;
+        let status = response.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+            return Err(ApiError::NeedsReconnect);
+        }
         let body = response.text().map_err(ApiError::Http)?;
         let me: UserMe =
             serde_json::from_str(&body).map_err(|e| ApiError::Protocol(e.to_string()))?;
@@ -162,5 +166,33 @@ mod tests {
         let auth = seen_auth.lock().unwrap();
         assert!(auth.starts_with("OAuth "), "{auth}");
         assert!(auth.contains("oauth_token=\"test-access-token\""), "{auth}");
+    }
+
+    #[test]
+    fn users_me_maps_401_to_needs_reconnect() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/2/users/me");
+            then.status(401).body("unauthorized");
+        });
+
+        let client = api_client(&server);
+        let err = client.users_me().unwrap_err();
+
+        assert!(matches!(err, ApiError::NeedsReconnect), "{err:?}");
+    }
+
+    #[test]
+    fn users_me_maps_403_to_needs_reconnect() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/2/users/me");
+            then.status(403).body("forbidden");
+        });
+
+        let client = api_client(&server);
+        let err = client.users_me().unwrap_err();
+
+        assert!(matches!(err, ApiError::NeedsReconnect), "{err:?}");
     }
 }
