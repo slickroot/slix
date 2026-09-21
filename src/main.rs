@@ -1,6 +1,8 @@
 mod api;
 mod config;
 mod oauth;
+#[allow(dead_code)]
+mod window;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = config::Config::load()?;
