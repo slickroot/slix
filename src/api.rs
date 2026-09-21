@@ -100,7 +100,11 @@ impl XApiClient {
         if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
             return Err(ApiError::NeedsReconnect);
         }
-        let body = response.text().map_err(ApiError::Http)?;
+        let body = response
+            .error_for_status()
+            .map_err(ApiError::Http)?
+            .text()
+            .map_err(ApiError::Http)?;
         let me: UserMe =
             serde_json::from_str(&body).map_err(|e| ApiError::Protocol(e.to_string()))?;
         Ok(format!("@{}", me.data.username))
@@ -194,5 +198,33 @@ mod tests {
         let err = client.users_me().unwrap_err();
 
         assert!(matches!(err, ApiError::NeedsReconnect), "{err:?}");
+    }
+
+    #[test]
+    fn users_me_maps_missing_username_to_protocol_error() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/2/users/me");
+            then.status(200).body(r#"{"data":{"id":"1","name":"Slick Root"}}"#);
+        });
+
+        let client = api_client(&server);
+        let err = client.users_me().unwrap_err();
+
+        assert!(matches!(err, ApiError::Protocol(_)), "{err:?}");
+    }
+
+    #[test]
+    fn users_me_maps_500_to_http_error() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/2/users/me");
+            then.status(500).body("boom");
+        });
+
+        let client = api_client(&server);
+        let err = client.users_me().unwrap_err();
+
+        assert!(matches!(err, ApiError::Http(_)), "{err:?}");
     }
 }
