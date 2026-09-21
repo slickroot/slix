@@ -113,9 +113,13 @@ mod tests {
         FixedOffset::east_opt(2 * 3600).unwrap()
     }
 
+    fn render_one(reply: Reply) -> String {
+        render(&[reply], &tz())
+    }
+
     #[test]
     fn shows_local_time_handle_and_impressions() {
-        let out = render(&[reply("hi")], &tz());
+        let out = render_one(reply("hi"));
         assert!(out.contains("01:30"));
         assert!(out.contains("@alice"));
         assert!(out.contains("42 impressions"));
@@ -123,7 +127,7 @@ mod tests {
 
     #[test]
     fn collapses_newlines_in_preview() {
-        let out = render(&[reply("a\nb\r\nc")], &tz());
+        let out = render_one(reply("a\nb\r\nc"));
         assert!(out.contains("a b  c"));
         assert_eq!(out.lines().count(), 2);
     }
@@ -131,7 +135,7 @@ mod tests {
     #[test]
     fn keeps_preview_at_the_limit() {
         let text = "x".repeat(PREVIEW_LIMIT);
-        let out = render(&[reply(&text)], &tz());
+        let out = render_one(reply(&text));
         assert!(out.contains(&text));
         assert!(!out.contains('…'));
     }
@@ -139,22 +143,15 @@ mod tests {
     #[test]
     fn cuts_preview_over_the_limit_with_ellipsis() {
         let text = "x".repeat(PREVIEW_LIMIT + 1);
-        let out = render(&[reply(&text)], &tz());
+        let out = render_one(reply(&text));
         assert!(out.contains(&format!("{}…", "x".repeat(PREVIEW_LIMIT))));
         assert!(!out.contains(&text));
     }
 
     #[test]
     fn links_with_osc8_hyperlink() {
-        let out = render(&[reply("hi")], &tz());
+        let out = render_one(reply("hi"));
         assert!(out.ends_with("\x1b]8;;https://x.com/i/status/123\x1b\\[link]\x1b]8;;\x1b\\"));
-    }
-
-    fn reply_with_likes(likes: u64) -> Reply {
-        Reply {
-            likes,
-            ..reply("hi")
-        }
     }
 
     fn reply_at(
@@ -166,38 +163,39 @@ mod tests {
         profile_visits: u64,
     ) -> Reply {
         Reply {
-            id: "1".into(),
             created_at: created_at.parse::<DateTime<Utc>>().unwrap(),
-            text: text.into(),
             to_username: to_username.into(),
             impressions,
             likes,
             profile_visits,
-        }
-    }
-
-    fn reply_with_profile_visits(profile_visits: u64) -> Reply {
-        Reply {
-            profile_visits,
-            ..reply("hi")
+            ..reply(text)
         }
     }
 
     #[test]
     fn shows_zero_profile_visits() {
-        let out = render(&[reply_with_profile_visits(0)], &tz());
+        let out = render_one(Reply {
+            profile_visits: 0,
+            ..reply("hi")
+        });
         assert!(out.contains("0 profile visits"));
     }
 
     #[test]
     fn uses_the_word_visits_for_a_single_profile_visit() {
-        let out = render(&[reply_with_profile_visits(1)], &tz());
+        let out = render_one(Reply {
+            profile_visits: 1,
+            ..reply("hi")
+        });
         assert!(out.contains("1 profile visits"));
     }
 
     #[test]
     fn puts_profile_visits_between_likes_and_link() {
-        let out = render(&[reply_with_profile_visits(7)], &tz());
+        let out = render_one(Reply {
+            profile_visits: 7,
+            ..reply("hi")
+        });
         let likes = out.find("0 likes").unwrap();
         let visits = out.find("7 profile visits").unwrap();
         let link = out.find("[link]").unwrap();
@@ -206,19 +204,28 @@ mod tests {
 
     #[test]
     fn shows_zero_likes() {
-        let out = render(&[reply_with_likes(0)], &tz());
+        let out = render_one(Reply {
+            likes: 0,
+            ..reply("hi")
+        });
         assert!(out.contains("0 likes"));
     }
 
     #[test]
     fn uses_the_word_likes_for_a_single_like() {
-        let out = render(&[reply_with_likes(1)], &tz());
+        let out = render_one(Reply {
+            likes: 1,
+            ..reply("hi")
+        });
         assert!(out.contains("1 likes"));
     }
 
     #[test]
     fn puts_likes_between_impressions_and_link() {
-        let out = render(&[reply_with_likes(7)], &tz());
+        let out = render_one(Reply {
+            likes: 7,
+            ..reply("hi")
+        });
         let impressions = out.find("42 impressions").unwrap();
         let likes = out.find("7 likes").unwrap();
         let link = out.find("[link]").unwrap();
