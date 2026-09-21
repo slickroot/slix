@@ -14,36 +14,46 @@ where
     }
     let mut newest_first: Vec<&Reply> = replies.iter().collect();
     newest_first.sort_by_key(|reply| std::cmp::Reverse(reply.created_at));
-    let handle_width = newest_first
-        .iter()
-        .map(|reply| reply.to_username.chars().count() + 1)
-        .max()
-        .unwrap_or(0);
-    let impressions_width = newest_first
-        .iter()
-        .map(|reply| reply.impressions.to_string().len())
-        .max()
-        .unwrap_or(0);
+    let widths = Widths::of(&newest_first);
     let lines = newest_first
         .iter()
-        .map(|reply| render_line(reply, tz, handle_width, impressions_width));
+        .map(|reply| render_line(reply, tz, &widths));
     std::iter::once(header)
         .chain(lines)
         .collect::<Vec<_>>()
         .join("\n")
 }
 
-fn render_line<Tz: TimeZone>(
-    reply: &Reply,
-    tz: &Tz,
-    handle_width: usize,
-    impressions_width: usize,
-) -> String
+struct Widths {
+    handle: usize,
+    impressions: usize,
+}
+
+impl Widths {
+    fn of(replies: &[&Reply]) -> Self {
+        Widths {
+            handle: replies
+                .iter()
+                .map(|reply| reply.to_username.chars().count() + 1)
+                .max()
+                .unwrap_or(0),
+            impressions: replies
+                .iter()
+                .map(|reply| reply.impressions.to_string().len())
+                .max()
+                .unwrap_or(0),
+        }
+    }
+}
+
+fn render_line<Tz: TimeZone>(reply: &Reply, tz: &Tz, widths: &Widths) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
     let time = reply.created_at.with_timezone(tz).format("%H:%M");
     let handle = format!("@{}", reply.to_username);
+    let handle_width = widths.handle;
+    let impressions_width = widths.impressions;
     format!(
         "{time}  {handle:<handle_width$}  {:<PREVIEW_WIDTH$}  {:>impressions_width$} impressions  {}",
         preview(&reply.text),
