@@ -54,7 +54,6 @@ pub struct Me {
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub struct Reply {
     pub id: String,
     pub created_at: DateTime<Utc>,
@@ -166,7 +165,6 @@ impl XApiClient {
         })
     }
 
-    #[allow(dead_code)]
     pub fn replies(&self, user_id: &str, window: &Window) -> Result<Vec<Reply>, ApiError> {
         let url = format!("{}/users/{user_id}/tweets", self.base);
         let query = [
