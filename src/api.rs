@@ -60,6 +60,7 @@ pub struct Reply {
     pub text: String,
     pub to_username: String,
     pub impressions: u64,
+    pub likes: u64,
 }
 
 #[derive(Deserialize)]
@@ -102,6 +103,7 @@ struct Tweet {
 #[derive(Deserialize)]
 struct PublicMetrics {
     impression_count: u64,
+    like_count: u64,
 }
 
 #[derive(Deserialize)]
@@ -239,6 +241,7 @@ impl XApiClient {
                     .map(|username| username.to_string())
                     .unwrap_or_default(),
                 impressions: tweet.public_metrics.impression_count,
+                likes: tweet.public_metrics.like_count,
             })
             .collect())
     }
@@ -406,7 +409,7 @@ mod tests {
                 httpmock::HttpMockResponse::builder()
                     .status(200)
                     .body(
-                        r#"{"data":[{"id":"7","created_at":"2026-09-20T10:15:00.000Z","text":"hi","public_metrics":{"impression_count":12},"referenced_tweets":[{"type":"replied_to","id":"1"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#,
+                        r#"{"data":[{"id":"7","created_at":"2026-09-20T10:15:00.000Z","text":"hi","public_metrics":{"impression_count":12,"like_count":3},"referenced_tweets":[{"type":"replied_to","id":"1"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#,
                     )
                     .build()
             });
@@ -422,6 +425,7 @@ mod tests {
         assert_eq!(replies.len(), 1);
         assert_eq!(replies[0].id, "7");
         assert_eq!(replies[0].impressions, 12);
+        assert_eq!(replies[0].likes, 3);
         let auth = seen_auth.lock().unwrap();
         assert!(auth.starts_with("OAuth "), "{auth}");
         assert!(auth.contains("oauth_token=\"test-access-token\""), "{auth}");
@@ -449,10 +453,10 @@ mod tests {
     #[test]
     fn replies_keeps_only_replied_to_tweets_and_resolves_username() {
         let body = r#"{"data":[
-            {"id":"1","created_at":"2026-09-20T10:00:00.000Z","text":"a","public_metrics":{"impression_count":5},"referenced_tweets":[{"type":"replied_to","id":"100"}],"in_reply_to_user_id":"9"},
-            {"id":"2","created_at":"2026-09-20T11:00:00.000Z","text":"plain","public_metrics":{"impression_count":6}},
-            {"id":"3","created_at":"2026-09-20T12:00:00.000Z","text":"quote","public_metrics":{"impression_count":7},"referenced_tweets":[{"type":"quoted","id":"101"}]},
-            {"id":"4","created_at":"2026-09-20T13:00:00.000Z","text":"b","public_metrics":{"impression_count":8},"referenced_tweets":[{"type":"quoted","id":"101"},{"type":"replied_to","id":"102"}],"in_reply_to_user_id":"10"}
+            {"id":"1","created_at":"2026-09-20T10:00:00.000Z","text":"a","public_metrics":{"impression_count":5,"like_count":1},"referenced_tweets":[{"type":"replied_to","id":"100"}],"in_reply_to_user_id":"9"},
+            {"id":"2","created_at":"2026-09-20T11:00:00.000Z","text":"plain","public_metrics":{"impression_count":6,"like_count":2}},
+            {"id":"3","created_at":"2026-09-20T12:00:00.000Z","text":"quote","public_metrics":{"impression_count":7,"like_count":3},"referenced_tweets":[{"type":"quoted","id":"101"}]},
+            {"id":"4","created_at":"2026-09-20T13:00:00.000Z","text":"b","public_metrics":{"impression_count":8,"like_count":4},"referenced_tweets":[{"type":"quoted","id":"101"},{"type":"replied_to","id":"102"}],"in_reply_to_user_id":"10"}
         ],"includes":{"users":[{"id":"9","username":"bob"},{"id":"10","username":"carol"}]}}"#;
 
         let replies = replies_with_body(200, body).unwrap();
@@ -502,7 +506,16 @@ mod tests {
 
     #[test]
     fn replies_maps_reply_missing_impressions_to_protocol_error() {
-        let body = r#"{"data":[{"id":"1","created_at":"2026-09-20T10:00:00.000Z","text":"a","public_metrics":{},"referenced_tweets":[{"type":"replied_to","id":"100"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#;
+        let body = r#"{"data":[{"id":"1","created_at":"2026-09-20T10:00:00.000Z","text":"a","public_metrics":{"like_count":0},"referenced_tweets":[{"type":"replied_to","id":"100"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#;
+
+        let err = replies_with_body(200, body).unwrap_err();
+
+        assert!(matches!(err, ApiError::Protocol(_)), "{err:?}");
+    }
+
+    #[test]
+    fn replies_maps_reply_missing_likes_to_protocol_error() {
+        let body = r#"{"data":[{"id":"1","created_at":"2026-09-20T10:00:00.000Z","text":"a","public_metrics":{"impression_count":5},"referenced_tweets":[{"type":"replied_to","id":"100"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#;
 
         let err = replies_with_body(200, body).unwrap_err();
 
