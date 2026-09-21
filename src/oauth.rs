@@ -95,12 +95,45 @@ impl PinFlow {
         let params = form_params(&response.text().map_err(OAuthError::Http)?);
         let token = params
             .get("oauth_token")
-            .ok_or_else(|| OAuthError::Protocol("missing oauth_token".into()))?;
+            .ok_or_else(|| OAuthError::Protocol("missing oauth_token".into()))?
+            .clone();
+        let secret = params
+            .get("oauth_token_secret")
+            .ok_or_else(|| OAuthError::Protocol("missing oauth_token_secret".into()))?
+            .clone();
+        self.request_token = Some(oauth1::Token::new(token.clone(), secret));
         Ok(format!("{}?oauth_token={}", self.authorize_endpoint, token))
     }
 
     pub fn exchange(&self, pin: &str) -> Result<(String, String), OAuthError> {
-        todo!()
+        let request_token = self.request_token.as_ref().ok_or_else(|| {
+            OAuthError::Protocol("no request token; call authorize_url first".into())
+        })?;
+        let mut params = HashMap::new();
+        params.insert("oauth_verifier", Cow::Borrowed(pin));
+        let authorization = oauth1::authorize(
+            "POST",
+            &self.access_token_endpoint,
+            &self.consumer,
+            Some(request_token),
+            Some(params),
+        );
+        let response = self
+            .client
+            .post(&self.access_token_endpoint)
+            .header(AUTHORIZATION, authorization)
+            .send()
+            .map_err(OAuthError::Http)?;
+        let params = form_params(&response.text().map_err(OAuthError::Http)?);
+        let token = params
+            .get("oauth_token")
+            .ok_or_else(|| OAuthError::Protocol("missing oauth_token".into()))?
+            .clone();
+        let secret = params
+            .get("oauth_token_secret")
+            .ok_or_else(|| OAuthError::Protocol("missing oauth_token_secret".into()))?
+            .clone();
+        Ok((token, secret))
     }
 }
 
@@ -172,5 +205,46 @@ mod tests {
             assert!(header.contains("oauth_callback=\"oob\""), "{header}");
         }
         assert_ne!(headers[0], headers[1], "each call must use a fresh nonce");
+    }
+
+    #[test]
+    fn exchange_trades_pin_for_access_token_pair() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::POST)
+                .path("/oauth/request_token");
+            then.status(200)
+                .body("oauth_token=RTTOK&oauth_token_secret=RTSEC");
+        });
+
+        let seen_auth = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let seen_auth_for_mock = std::sync::Arc::clone(&seen_auth);
+        server.mock(|when, then| {
+            when.method(httpmock::Method::POST)
+                .path("/oauth/access_token");
+            then.respond_with(move |req: &httpmock::HttpMockRequest| {
+                let auth = req
+                    .headers()
+                    .get("authorization")
+                    .map(|value| value.to_str().unwrap().to_string())
+                    .unwrap_or_default();
+                *seen_auth_for_mock.lock().unwrap() = auth;
+                httpmock::HttpMockResponse::builder()
+                    .status(200)
+                    .body("oauth_token=ATTOK&oauth_token_secret=ATSEC")
+                    .build()
+            });
+        });
+
+        let mut flow = flow(&server);
+        flow.authorize_url().unwrap();
+        let (token, secret) = flow.exchange("123456").unwrap();
+
+        assert_eq!(token, "ATTOK");
+        assert_eq!(secret, "ATSEC");
+
+        let auth = seen_auth.lock().unwrap();
+        assert!(auth.contains("oauth_token=\"RTTOK\""), "{auth}");
+        assert!(auth.contains("oauth_verifier=\"123456\""), "{auth}");
     }
 }
