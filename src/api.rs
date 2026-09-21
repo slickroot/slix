@@ -2,6 +2,7 @@ use std::fmt;
 
 use oauth1::Token;
 use reqwest::blocking::Client;
+use reqwest::header::AUTHORIZATION;
 use serde::Deserialize;
 
 pub struct XApiClient {
@@ -82,9 +83,17 @@ impl XApiClient {
     }
 
     pub fn users_me(&self) -> Result<String, ApiError> {
+        let authorization = oauth1::authorize(
+            "GET",
+            &self.endpoint,
+            &self.consumer,
+            Some(&self.access_token),
+            None,
+        );
         let response = self
             .client
             .get(&self.endpoint)
+            .header(AUTHORIZATION, authorization)
             .send()
             .map_err(ApiError::Http)?;
         let body = response.text().map_err(ApiError::Http)?;
@@ -125,5 +134,33 @@ mod tests {
         let handle = client.users_me().unwrap();
 
         assert_eq!(handle, format!("@{username}"));
+    }
+
+    #[test]
+    fn users_me_sends_signed_get_to_users_me_endpoint() {
+        let server = MockServer::start();
+        let seen_auth = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let seen_auth_for_mock = std::sync::Arc::clone(&seen_auth);
+        server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/2/users/me");
+            then.respond_with(move |req: &httpmock::HttpMockRequest| {
+                *seen_auth_for_mock.lock().unwrap() = req
+                    .headers()
+                    .get("authorization")
+                    .map(|value| value.to_str().unwrap().to_string())
+                    .unwrap_or_default();
+                httpmock::HttpMockResponse::builder()
+                    .status(200)
+                    .body(r#"{"data":{"id":"1","name":"Slick Root","username":"slickroot"}}"#)
+                    .build()
+            });
+        });
+
+        let client = api_client(&server);
+        client.users_me().unwrap();
+
+        let auth = seen_auth.lock().unwrap();
+        assert!(auth.starts_with("OAuth "), "{auth}");
+        assert!(auth.contains("oauth_token=\"test-access-token\""), "{auth}");
     }
 }
