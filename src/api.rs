@@ -22,7 +22,9 @@ pub enum ApiError {
 impl fmt::Display for ApiError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NeedsReconnect => write!(f, "stored tokens no longer accepted; reconnect required"),
+            Self::NeedsReconnect => {
+                write!(f, "stored tokens no longer accepted; reconnect required")
+            }
             Self::Http(e) => write!(f, "api http error: {e}"),
             Self::Protocol(msg) => write!(f, "api protocol error: {msg}"),
         }
@@ -205,7 +207,8 @@ mod tests {
         let server = MockServer::start();
         server.mock(|when, then| {
             when.method(httpmock::Method::GET).path("/2/users/me");
-            then.status(200).body(r#"{"data":{"id":"1","name":"Slick Root"}}"#);
+            then.status(200)
+                .body(r#"{"data":{"id":"1","name":"Slick Root"}}"#);
         });
 
         let client = api_client(&server);
