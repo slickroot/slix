@@ -103,6 +103,18 @@ mod tests {
     }
 
     #[test]
+    fn load_for_corrupt_file_returns_err() {
+        let dir = test_dir("corrupt");
+        let history = History::new(dir.clone());
+        let date = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap();
+        std::fs::write(dir.join("2026-09-20.json"), "not json").unwrap();
+
+        let result = history.load(date);
+
+        assert!(matches!(result, Err(HistoryError::Json(_))), "{result:?}");
+    }
+
+    #[test]
     fn save_then_load_round_trips_replies_for_a_date() {
         let history = History::new(test_dir("roundtrip"));
         let date = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap();
