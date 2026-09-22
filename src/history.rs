@@ -35,6 +35,38 @@ impl History {
         }
     }
 
+    pub fn load_all(&self) -> Result<Vec<Reply>, HistoryError> {
+        let entries = match std::fs::read_dir(&self.dir) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
+            Err(e) => return Err(HistoryError::Io(e)),
+        };
+
+        let mut dates = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(HistoryError::Io)?;
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+                continue;
+            }
+            let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                continue;
+            };
+            if let Ok(date) = stem.parse::<NaiveDate>() {
+                dates.push(date);
+            }
+        }
+        dates.sort();
+
+        let mut replies = Vec::new();
+        for date in dates {
+            if let Some(mut date_replies) = self.load(date)? {
+                replies.append(&mut date_replies);
+            }
+        }
+        Ok(replies)
+    }
+
     pub fn save(&self, date: NaiveDate, replies: &[Reply]) -> Result<(), HistoryError> {
         std::fs::create_dir_all(&self.dir).map_err(HistoryError::Io)?;
         let path = self.path_for(date);
@@ -160,6 +192,56 @@ mod tests {
             .map(|entry| entry.unwrap().file_name().into_string().unwrap())
             .collect();
         assert_eq!(entries, vec!["2026-09-20.json".to_string()]);
+    }
+
+    #[test]
+    fn load_all_with_no_history_dir_returns_empty() {
+        let dir = test_dir("load-all-missing");
+        std::fs::remove_dir_all(&dir).unwrap();
+        let history = History::new(dir);
+
+        let replies = history.load_all().unwrap();
+
+        assert!(replies.is_empty());
+    }
+
+    #[test]
+    fn load_all_with_empty_history_dir_returns_empty() {
+        let history = History::new(test_dir("load-all-empty-dir"));
+
+        let replies = history.load_all().unwrap();
+
+        assert!(replies.is_empty());
+    }
+
+    #[test]
+    fn load_all_concatenates_replies_in_date_ascending_order() {
+        let history = History::new(test_dir("load-all-multi"));
+        let day1 = NaiveDate::from_ymd_opt(2026, 9, 18).unwrap();
+        let day2 = NaiveDate::from_ymd_opt(2026, 9, 19).unwrap();
+        let day3 = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap();
+
+        history.save(day3, &[sample_reply("3")]).unwrap();
+        history.save(day1, &[sample_reply("1")]).unwrap();
+        history.save(day2, &[sample_reply("2")]).unwrap();
+
+        let replies = history.load_all().unwrap();
+
+        assert_eq!(
+            replies.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            vec!["1", "2", "3"]
+        );
+    }
+
+    #[test]
+    fn load_all_propagates_err_for_corrupt_file() {
+        let dir = test_dir("load-all-corrupt");
+        let history = History::new(dir.clone());
+        std::fs::write(dir.join("2026-09-20.json"), "not json").unwrap();
+
+        let result = history.load_all();
+
+        assert!(matches!(result, Err(HistoryError::Json(_))), "{result:?}");
     }
 
     #[test]
