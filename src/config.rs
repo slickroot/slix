@@ -11,6 +11,14 @@ pub struct Config {
     pub consumer_secret: String,
     pub access_token: Option<String>,
     pub access_token_secret: Option<String>,
+    #[serde(default = "default_data_dir")]
+    pub data_dir: PathBuf,
+}
+
+fn default_data_dir() -> PathBuf {
+    dirs::config_dir()
+        .expect("no config dir available")
+        .join("slix")
 }
 
 #[derive(Debug)]
@@ -100,16 +108,36 @@ mod tests {
 
     #[test]
     fn save_then_load_round_trips_all_fields() {
-        let path = test_dir("roundtrip").join("config.json");
+        let dir = test_dir("roundtrip");
+        let path = dir.join("config.json");
         let cfg = Config {
             consumer_key: "test-consumer-key".into(),
             consumer_secret: "test-consumer-secret".into(),
             access_token: Some("test-access-token".into()),
             access_token_secret: Some("test-access-token-secret".into()),
+            data_dir: dir.join("data"),
         };
         cfg.save_to(&path).unwrap();
         let loaded = Config::load_from(&path).unwrap();
         assert_eq!(loaded, cfg);
+    }
+
+    #[test]
+    fn load_from_config_without_data_dir_falls_back_to_computed_default() {
+        let path = test_dir("no-data-dir").join("config.json");
+        fs::write(
+            &path,
+            r#"{
+                "consumer_key": "k",
+                "consumer_secret": "s",
+                "access_token": null,
+                "access_token_secret": null
+            }"#,
+        )
+        .unwrap();
+        let cfg = Config::load_from(&path).unwrap();
+        let expected = dirs::config_dir().unwrap().join("slix");
+        assert_eq!(cfg.data_dir, expected);
     }
 
     #[test]
@@ -122,6 +150,7 @@ mod tests {
             consumer_secret: "s".into(),
             access_token: Some("t".into()),
             access_token_secret: Some("ts".into()),
+            ..Default::default()
         };
         cfg.save_to(&path).unwrap();
         let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
@@ -135,18 +164,21 @@ mod tests {
             consumer_secret: "s".into(),
             access_token: Some("t".into()),
             access_token_secret: None,
+            ..Default::default()
         };
         let only_access_token_secret = Config {
             consumer_key: "k".into(),
             consumer_secret: "s".into(),
             access_token: None,
             access_token_secret: Some("ts".into()),
+            ..Default::default()
         };
         let neither = Config {
             consumer_key: "k".into(),
             consumer_secret: "s".into(),
             access_token: None,
             access_token_secret: None,
+            ..Default::default()
         };
         assert!(!only_access_token.is_connected());
         assert!(!only_access_token_secret.is_connected());

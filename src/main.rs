@@ -135,6 +135,7 @@ mod tests {
             consumer_secret: "test-consumer-secret".into(),
             access_token: None,
             access_token_secret: None,
+            data_dir: test_dir("unused-config"),
         }
     }
 
@@ -148,6 +149,7 @@ mod tests {
             consumer_secret: "test-consumer-secret".into(),
             access_token: Some("test-access-token".into()),
             access_token_secret: Some("test-access-token-secret".into()),
+            data_dir: test_dir("connected-config"),
         }
     }
 
