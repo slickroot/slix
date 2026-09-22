@@ -38,8 +38,10 @@ impl History {
     pub fn save(&self, date: NaiveDate, replies: &[Reply]) -> Result<(), HistoryError> {
         std::fs::create_dir_all(&self.dir).map_err(HistoryError::Io)?;
         let path = self.path_for(date);
+        let temp_path = self.dir.join(format!("{date}.json.tmp-{}", std::process::id()));
         let json = serde_json::to_vec_pretty(replies).map_err(HistoryError::Json)?;
-        std::fs::write(&path, json).map_err(HistoryError::Io)
+        std::fs::write(&temp_path, json).map_err(HistoryError::Io)?;
+        std::fs::rename(&temp_path, &path).map_err(HistoryError::Io)
     }
 }
 
@@ -123,6 +125,27 @@ mod tests {
         let loaded = history.load(date).unwrap();
 
         assert!(matches!(loaded, Some(replies) if replies.is_empty()));
+    }
+
+    #[test]
+    fn default_dir_is_config_dir_joined_with_slix_history() {
+        let expected = dirs::config_dir().unwrap().join("slix").join("history");
+        assert_eq!(History::default_dir(), expected);
+    }
+
+    #[test]
+    fn save_leaves_no_stray_temp_file_behind() {
+        let dir = test_dir("atomic");
+        let history = History::new(dir.clone());
+        let date = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap();
+
+        history.save(date, &[sample_reply("1")]).unwrap();
+
+        let entries: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert_eq!(entries, vec!["2026-09-20.json".to_string()]);
     }
 
     #[test]
