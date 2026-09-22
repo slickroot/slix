@@ -45,6 +45,16 @@ fn write_report(
     };
     writeln!(output, "{}", report::render(&replies, &chrono::Local))?;
 
+    writeln!(output)?;
+    writeln!(output, "---")?;
+    writeln!(output)?;
+    let all_replies = history.load_all()?;
+    let ranks = accounts::rank(&all_replies);
+    writeln!(output, "{}", report::render_accounts(&ranks))?;
+    writeln!(output)?;
+    writeln!(output, "---")?;
+    writeln!(output)?;
+
     let today_count = match today_goal.load(now)? {
         Some(count) => count,
         None => {
@@ -451,8 +461,16 @@ mod tests {
         assert_eq!(lines[1], "Yesterday · 1 replies");
         assert!(lines[2].contains("@bob"), "{text}");
         assert!(lines[2].contains("12 impressions"), "{text}");
-        assert_eq!(lines[3], report::render_today(1));
-        assert_eq!(lines.len(), 4, "{text}");
+        assert_eq!(lines[3], "");
+        assert_eq!(lines[4], "---");
+        assert_eq!(lines[5], "");
+        assert_eq!(lines[6], "Accounts");
+        assert!(lines[7].contains("@bob"), "{text}");
+        assert_eq!(lines[8], "");
+        assert_eq!(lines[9], "---");
+        assert_eq!(lines[10], "");
+        assert_eq!(lines[11], report::render_today(1));
+        assert_eq!(lines.len(), 12, "{text}");
         assert!(text.ends_with('\n'));
     }
 
@@ -604,6 +622,99 @@ mod tests {
             text.ends_with(&format!("{}\n", report::render_today(0))),
             "{text}"
         );
+    }
+
+    #[test]
+    fn accounts_section_appears_between_history_and_today_with_dividers() {
+        let server = MockServer::start();
+        mock_users_me(&server, 200, "slickroot");
+        mock_tweets(
+            &server,
+            200,
+            r#"{"data":[{"id":"7","created_at":"2026-09-20T10:15:00.000Z","text":"hello there","public_metrics":{"impression_count":12,"like_count":3},"non_public_metrics":{"user_profile_clicks":4},"referenced_tweets":[{"type":"replied_to","id":"1"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#,
+        );
+        let history = test_history("accounts-section");
+        let earlier_date = now().date_naive().pred_opt().unwrap().pred_opt().unwrap();
+        history
+            .save(
+                earlier_date,
+                &[api::Reply {
+                    id: "1".into(),
+                    created_at: chrono::Utc::now(),
+                    text: "hi".into(),
+                    to_username: "alice".into(),
+                    impressions: 20,
+                    likes: 0,
+                    profile_visits: 0,
+                }],
+            )
+            .unwrap();
+        let mut output = Vec::new();
+
+        run(
+            connected_config(),
+            &api_base(&server),
+            &oauth_base(&server),
+            &test_dir("accounts-section-config").join("config.json"),
+            &history,
+            &test_today_goal("accounts-section-today"),
+            std::io::Cursor::new(""),
+            &mut output,
+            now(),
+        )
+        .unwrap();
+
+        let text = String::from_utf8(output).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "@slickroot · connected");
+        assert_eq!(lines[1], "Yesterday · 1 replies");
+        assert!(lines[2].contains("@bob"), "{text}");
+        assert_eq!(lines[3], "");
+        assert_eq!(lines[4], "---");
+        assert_eq!(lines[5], "");
+        assert_eq!(lines[6], "Accounts");
+        assert!(lines[7].contains("@alice"), "{text}");
+        assert!(lines[8].contains("@bob"), "{text}");
+        assert_eq!(lines[9], "");
+        assert_eq!(lines[10], "---");
+        assert_eq!(lines[11], "");
+        assert_eq!(lines[12], report::render_today(1));
+    }
+
+    #[test]
+    fn accounts_section_shows_no_data_yet_when_history_empty() {
+        let server = MockServer::start();
+        mock_users_me(&server, 200, "slickroot");
+        mock_tweets(&server, 200, NO_TWEETS);
+        let mut output = Vec::new();
+
+        run(
+            connected_config(),
+            &api_base(&server),
+            &oauth_base(&server),
+            &test_dir("accounts-empty").join("config.json"),
+            &test_history("accounts-empty"),
+            &test_today_goal("accounts-empty"),
+            std::io::Cursor::new(""),
+            &mut output,
+            now(),
+        )
+        .unwrap();
+
+        let text = String::from_utf8(output).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "@slickroot · connected");
+        assert_eq!(lines[1], "Yesterday · 0 replies");
+        assert_eq!(lines[2], "No replies yesterday.");
+        assert_eq!(lines[3], "");
+        assert_eq!(lines[4], "---");
+        assert_eq!(lines[5], "");
+        assert_eq!(lines[6], "Accounts");
+        assert_eq!(lines[7], "No data yet.");
+        assert_eq!(lines[8], "");
+        assert_eq!(lines[9], "---");
+        assert_eq!(lines[10], "");
+        assert_eq!(lines[11], report::render_today(0));
     }
 
     #[test]
