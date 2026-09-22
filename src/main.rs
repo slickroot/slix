@@ -1,5 +1,6 @@
 mod api;
 mod config;
+mod history;
 mod oauth;
 mod report;
 mod window;

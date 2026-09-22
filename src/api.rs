@@ -7,7 +7,7 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use oauth1::Token;
 use reqwest::blocking::Client;
 use reqwest::header::AUTHORIZATION;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::window::Window;
 
@@ -53,7 +53,7 @@ pub struct Me {
     pub handle: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Reply {
     pub id: String,
     pub created_at: DateTime<Utc>,
