@@ -1,16 +1,19 @@
 mod api;
 mod config;
+mod history;
 mod oauth;
 mod report;
 mod window;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = config::Config::load()?;
+    let history = history::History::default();
     let _ = run(
         config,
         "https://api.x.com/2/",
         "https://api.x.com/oauth",
         &config::Config::path(),
+        &history,
         std::io::stdin().lock(),
         std::io::stdout(),
         chrono::Local::now(),
@@ -21,11 +24,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn write_report(
     api: &api::XApiClient,
     me: &api::Me,
+    history: &history::History,
     now: chrono::DateTime<chrono::Local>,
     output: &mut impl std::io::Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     writeln!(output, "{} · connected", me.handle)?;
-    let replies = api.replies(&me.id, &window::Window::yesterday(now))?;
+    let date = now.date_naive().pred_opt().unwrap();
+    let replies = match history.load(date)? {
+        Some(replies) => replies,
+        None => {
+            let replies = api.replies(&me.id, &window::Window::yesterday(now))?;
+            history.save(date, &replies)?;
+            replies
+        }
+    };
     writeln!(output, "{}", report::render(&replies, &chrono::Local))?;
     Ok(())
 }
@@ -35,6 +47,7 @@ fn run(
     api_base: &str,
     oauth_base: &str,
     path: &std::path::Path,
+    history: &history::History,
     input: impl std::io::BufRead,
     mut output: impl std::io::Write,
     now: chrono::DateTime<chrono::Local>,
@@ -54,7 +67,7 @@ fn run(
         );
         match api.users_me() {
             Ok(me) => {
-                write_report(&api, &me, now, &mut output)?;
+                write_report(&api, &me, history, now, &mut output)?;
                 return Ok(config);
             }
             Err(_) => {
@@ -96,7 +109,7 @@ fn run(
             reqwest::blocking::Client::new(),
         );
         let me = api.users_me()?;
-        write_report(&api, &me, now, &mut output)?;
+        write_report(&api, &me, history, now, &mut output)?;
     }
 
     Ok(config)
@@ -122,6 +135,10 @@ mod tests {
             access_token: None,
             access_token_secret: None,
         }
+    }
+
+    fn test_history(name: &str) -> history::History {
+        history::History::new(test_dir(name))
     }
 
     fn connected_config() -> config::Config {
@@ -205,6 +222,7 @@ mod tests {
             &api_base(&server),
             &oauth_base(&server),
             &path,
+            &test_history("first-run"),
             std::io::Cursor::new("123456\n"),
             &mut output,
             now(),
@@ -246,6 +264,7 @@ mod tests {
             &api_base(&server),
             &oauth_base(&server),
             &path,
+            &test_history("verify-on-startup"),
             std::io::Cursor::new(""),
             &mut output,
             now(),
@@ -279,6 +298,7 @@ mod tests {
             &api_base(&server),
             &oauth_base(&server),
             &path,
+            &test_history("reconnect"),
             std::io::Cursor::new("123456\n"),
             &mut output,
             now(),
@@ -316,6 +336,7 @@ mod tests {
             &api_base(&server),
             &oauth_base(&server),
             &path,
+            &test_history("re-open-first"),
             std::io::Cursor::new("123456\n"),
             &mut first_output,
             now(),
@@ -329,6 +350,7 @@ mod tests {
             &api_base(&server),
             &oauth_base(&server),
             &path,
+            &test_history("re-open-second"),
             std::io::Cursor::new(""),
             &mut second_output,
             now(),
@@ -360,6 +382,7 @@ mod tests {
             &api_base(&server),
             &oauth_base(&server),
             &path,
+            &test_history("exchange-failure"),
             std::io::Cursor::new("123456\n"),
             &mut output,
             now(),
@@ -386,6 +409,7 @@ mod tests {
             &api_base(&server),
             &oauth_base(&server),
             &test_dir("report").join("config.json"),
+            &test_history("report"),
             std::io::Cursor::new(""),
             &mut output,
             now(),
@@ -403,6 +427,121 @@ mod tests {
     }
 
     #[test]
+    fn first_run_of_day_saves_fetched_replies_to_history() {
+        let server = MockServer::start();
+        mock_users_me(&server, 200, "slickroot");
+        let tweets = mock_tweets(
+            &server,
+            200,
+            r#"{"data":[{"id":"7","created_at":"2026-09-20T10:15:00.000Z","text":"hello there","public_metrics":{"impression_count":12,"like_count":3},"non_public_metrics":{"user_profile_clicks":4},"referenced_tweets":[{"type":"replied_to","id":"1"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#,
+        );
+        let history = test_history("save-on-fetch");
+
+        run(
+            connected_config(),
+            &api_base(&server),
+            &oauth_base(&server),
+            &test_dir("save-on-fetch").join("config.json"),
+            &history,
+            std::io::Cursor::new(""),
+            &mut Vec::new(),
+            now(),
+        )
+        .unwrap();
+
+        assert_eq!(tweets.calls(), 1);
+        let date = now().date_naive().pred_opt().unwrap();
+        let saved = history.load(date).unwrap().unwrap();
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].id, "7");
+    }
+
+    #[test]
+    fn later_run_same_day_loads_from_history_without_calling_api() {
+        let server = MockServer::start();
+        mock_users_me(&server, 200, "slickroot");
+        let tweets = mock_tweets(
+            &server,
+            200,
+            r#"{"data":[{"id":"7","created_at":"2026-09-20T10:15:00.000Z","text":"hello there","public_metrics":{"impression_count":12,"like_count":3},"non_public_metrics":{"user_profile_clicks":4},"referenced_tweets":[{"type":"replied_to","id":"1"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#,
+        );
+        let history = test_history("cached");
+        let path = test_dir("cached").join("config.json");
+
+        run(
+            connected_config(),
+            &api_base(&server),
+            &oauth_base(&server),
+            &path,
+            &history,
+            std::io::Cursor::new(""),
+            &mut Vec::new(),
+            now(),
+        )
+        .unwrap();
+
+        let mut second_output = Vec::new();
+        run(
+            connected_config(),
+            &api_base(&server),
+            &oauth_base(&server),
+            &path,
+            &history,
+            std::io::Cursor::new(""),
+            &mut second_output,
+            now(),
+        )
+        .unwrap();
+
+        assert_eq!(tweets.calls(), 1);
+        let text = String::from_utf8(second_output).unwrap();
+        assert!(text.contains("@bob"), "{text}");
+        assert!(text.contains("12 impressions"), "{text}");
+    }
+
+    #[test]
+    fn api_failure_on_first_run_saves_nothing_and_retries_next_run() {
+        let history = test_history("api-failure");
+        let date = now().date_naive().pred_opt().unwrap();
+
+        let failing_server = MockServer::start();
+        mock_users_me(&failing_server, 200, "slickroot");
+        mock_tweets(&failing_server, 500, "boom");
+
+        let result = run(
+            connected_config(),
+            &api_base(&failing_server),
+            &oauth_base(&failing_server),
+            &test_dir("api-failure").join("config.json"),
+            &history,
+            std::io::Cursor::new(""),
+            &mut Vec::new(),
+            now(),
+        );
+
+        assert!(result.is_err());
+        assert!(history.load(date).unwrap().is_none());
+
+        let succeeding_server = MockServer::start();
+        mock_users_me(&succeeding_server, 200, "slickroot");
+        let tweets = mock_tweets(&succeeding_server, 200, NO_TWEETS);
+
+        run(
+            connected_config(),
+            &api_base(&succeeding_server),
+            &oauth_base(&succeeding_server),
+            &test_dir("api-failure-retry").join("config.json"),
+            &history,
+            std::io::Cursor::new(""),
+            &mut Vec::new(),
+            now(),
+        )
+        .unwrap();
+
+        assert_eq!(tweets.calls(), 1);
+    }
+
+    #[test]
     fn empty_day_prints_no_replies_message() {
         let server = MockServer::start();
         mock_users_me(&server, 200, "slickroot");
@@ -414,6 +553,7 @@ mod tests {
             &api_base(&server),
             &oauth_base(&server),
             &test_dir("empty-day").join("config.json"),
+            &test_history("empty-day"),
             std::io::Cursor::new(""),
             &mut output,
             now(),
@@ -435,6 +575,7 @@ mod tests {
             &api_base(&server),
             &oauth_base(&server),
             &test_dir("replies-failure").join("config.json"),
+            &test_history("replies-failure"),
             std::io::Cursor::new(""),
             &mut Vec::new(),
             now(),
