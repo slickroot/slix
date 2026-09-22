@@ -1,3 +1,4 @@
+mod accounts;
 mod api;
 mod config;
 mod history;
