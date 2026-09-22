@@ -7,7 +7,7 @@ mod window;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = config::Config::load()?;
-    let history = history::History::new(history::History::default_dir());
+    let history = history::History::default();
     let _ = run(
         config,
         "https://api.x.com/2/",

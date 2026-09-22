@@ -45,6 +45,12 @@ impl History {
     }
 }
 
+impl Default for History {
+    fn default() -> History {
+        History::new(History::default_dir())
+    }
+}
+
 #[derive(Debug)]
 pub enum HistoryError {
     Io(std::io::Error),
@@ -131,6 +137,12 @@ mod tests {
     fn default_dir_is_config_dir_joined_with_slix_history() {
         let expected = dirs::config_dir().unwrap().join("slix").join("history");
         assert_eq!(History::default_dir(), expected);
+    }
+
+    #[test]
+    fn default_uses_default_dir() {
+        let history = History::default();
+        assert_eq!(history.dir, History::default_dir());
     }
 
     #[test]
