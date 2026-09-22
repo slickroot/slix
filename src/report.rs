@@ -1,3 +1,4 @@
+use crate::accounts;
 use crate::api::Reply;
 use chrono::TimeZone;
 
@@ -102,6 +103,74 @@ fn preview(text: &str) -> String {
 
 fn link(id: &str) -> String {
     format!("\x1b]8;;https://x.com/i/status/{id}\x1b\\[link]\x1b]8;;\x1b\\")
+}
+
+pub fn render_accounts(ranks: &[accounts::AccountRank]) -> String {
+    let header = "Accounts";
+    if ranks.is_empty() {
+        return format!("{header}\nNo data yet.");
+    }
+    let widths = AccountWidths::of(ranks);
+    let lines = ranks
+        .iter()
+        .enumerate()
+        .map(|(index, account)| render_account_line(index + 1, account, &widths));
+    std::iter::once(header.to_string())
+        .chain(lines)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+struct AccountWidths {
+    rank: usize,
+    handle: usize,
+    avg_impressions: usize,
+    reply_count: usize,
+}
+
+impl AccountWidths {
+    fn of(ranks: &[accounts::AccountRank]) -> Self {
+        AccountWidths {
+            rank: ranks.len().to_string().len(),
+            handle: ranks
+                .iter()
+                .map(|account| account.handle.chars().count() + 1)
+                .max()
+                .unwrap_or(0),
+            avg_impressions: ranks
+                .iter()
+                .map(|account| (account.avg_impressions.round() as i64).to_string().len())
+                .max()
+                .unwrap_or(0),
+            reply_count: ranks
+                .iter()
+                .map(|account| account.reply_count.to_string().len())
+                .max()
+                .unwrap_or(0),
+        }
+    }
+}
+
+fn render_account_line(
+    rank: usize,
+    account: &accounts::AccountRank,
+    widths: &AccountWidths,
+) -> String {
+    let rank_width = widths.rank;
+    let avg_width = widths.avg_impressions;
+    let reply_width = widths.reply_count;
+    let handle_text = format!("@{}", account.handle);
+    let handle_padding = " ".repeat(widths.handle.saturating_sub(handle_text.chars().count()));
+    format!(
+        "{rank:>rank_width$}. {}{handle_padding}  {:>avg_width$} avg impressions  {:>reply_width$} replies",
+        account_link(&account.handle),
+        account.avg_impressions.round() as i64,
+        account.reply_count
+    )
+}
+
+fn account_link(handle: &str) -> String {
+    format!("\x1b]8;;https://x.com/{handle}\x1b\\@{handle}\x1b]8;;\x1b\\")
 }
 
 #[cfg(test)]
@@ -321,5 +390,78 @@ mod tests {
             render_today(0),
             format!("Today: 0 of {DAILY_GOAL} replies ({DAILY_GOAL} to go)")
         );
+    }
+
+    fn account(handle: &str, avg_impressions: f64, reply_count: usize) -> accounts::AccountRank {
+        accounts::AccountRank {
+            handle: handle.into(),
+            avg_impressions,
+            reply_count,
+        }
+    }
+
+    #[test]
+    fn says_so_when_there_is_no_account_data() {
+        assert_eq!(render_accounts(&[]), "Accounts\nNo data yet.");
+    }
+
+    #[test]
+    fn shows_rank_handle_average_impressions_and_reply_count() {
+        let out = render_accounts(&[account("alice", 150.0, 2)]);
+        assert!(out.starts_with("Accounts\n"));
+        assert!(out.contains("1."));
+        assert!(out.contains("@alice"));
+        assert!(out.contains("150 avg impressions"));
+        assert!(out.contains("2 replies"));
+    }
+
+    fn strip_osc8(s: &str) -> String {
+        let mut out = String::new();
+        let mut rest = s;
+        while let Some(start) = rest.find("\x1b]8;;") {
+            out.push_str(&rest[..start]);
+            let after_start = &rest[start..];
+            match after_start.find("\x1b\\") {
+                Some(end) => rest = &after_start[end + "\x1b\\".len()..],
+                None => {
+                    rest = "";
+                    break;
+                }
+            }
+        }
+        out.push_str(rest);
+        out
+    }
+
+    #[test]
+    fn aligns_columns_across_accounts() {
+        let out = render_accounts(&[account("al", 5.0, 5), account("bobby", 1234.0, 1234)]);
+        let lines: Vec<String> = out.lines().skip(1).map(strip_osc8).collect();
+        assert_eq!(lines[0], "1. @al        5 avg impressions     5 replies");
+        assert_eq!(lines[1], "2. @bobby  1234 avg impressions  1234 replies");
+    }
+
+    #[test]
+    fn rounds_average_impressions_to_nearest_whole_number() {
+        let out = render_accounts(&[account("alice", 12.5, 1), account("bob", 12.4, 1)]);
+        assert!(out.contains("13 avg impressions"));
+        assert!(out.contains("12 avg impressions"));
+    }
+
+    #[test]
+    fn links_the_handle_with_an_osc8_hyperlink() {
+        let out = render_accounts(&[account("alice", 150.0, 2)]);
+        assert!(out.contains("\x1b]8;;https://x.com/alice\x1b\\@alice\x1b]8;;\x1b\\"));
+    }
+
+    #[test]
+    fn preserves_list_order_as_rank() {
+        let out = render_accounts(&[account("first", 100.0, 1), account("second", 50.0, 1)]);
+        let stripped: Vec<String> = out.lines().map(strip_osc8).collect();
+        let first = out.find("@first").unwrap();
+        let second = out.find("@second").unwrap();
+        assert!(first < second);
+        assert!(stripped[1].starts_with("1. @first"));
+        assert!(stripped[2].starts_with("2. @second"));
     }
 }
