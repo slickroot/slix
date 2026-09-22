@@ -8,13 +8,15 @@ mod window;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = config::Config::load()?;
-    let history = history::History::default();
+    let history = history::History::new(config.data_dir.join("history"));
+    let today_goal = today::TodayGoal::new(config.data_dir.join("today.json"));
     let _ = run(
         config,
         "https://api.x.com/2/",
         "https://api.x.com/oauth",
         &config::Config::path(),
         &history,
+        &today_goal,
         std::io::stdin().lock(),
         std::io::stdout(),
         chrono::Local::now(),
@@ -26,6 +28,7 @@ fn write_report(
     api: &api::XApiClient,
     me: &api::Me,
     history: &history::History,
+    today_goal: &today::TodayGoal,
     now: chrono::DateTime<chrono::Local>,
     output: &mut impl std::io::Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -40,6 +43,16 @@ fn write_report(
         }
     };
     writeln!(output, "{}", report::render(&replies, &chrono::Local))?;
+
+    let today_count = match today_goal.load(now)? {
+        Some(count) => count,
+        None => {
+            let count = api.replies(&me.id, &window::Window::today(now))?.len() as u64;
+            today_goal.save(count, now)?;
+            count
+        }
+    };
+    writeln!(output, "{}", report::render_today(today_count))?;
     Ok(())
 }
 
@@ -49,6 +62,7 @@ fn run(
     oauth_base: &str,
     path: &std::path::Path,
     history: &history::History,
+    today_goal: &today::TodayGoal,
     input: impl std::io::BufRead,
     mut output: impl std::io::Write,
     now: chrono::DateTime<chrono::Local>,
@@ -68,7 +82,7 @@ fn run(
         );
         match api.users_me() {
             Ok(me) => {
-                write_report(&api, &me, history, now, &mut output)?;
+                write_report(&api, &me, history, today_goal, now, &mut output)?;
                 return Ok(config);
             }
             Err(_) => {
@@ -110,7 +124,7 @@ fn run(
             reqwest::blocking::Client::new(),
         );
         let me = api.users_me()?;
-        write_report(&api, &me, history, now, &mut output)?;
+        write_report(&api, &me, history, today_goal, now, &mut output)?;
     }
 
     Ok(config)
@@ -141,6 +155,10 @@ mod tests {
 
     fn test_history(name: &str) -> history::History {
         history::History::new(test_dir(name))
+    }
+
+    fn test_today_goal(name: &str) -> today::TodayGoal {
+        today::TodayGoal::new(test_dir(name).join("today.json"))
     }
 
     fn connected_config() -> config::Config {
@@ -226,6 +244,7 @@ mod tests {
             &oauth_base(&server),
             &path,
             &test_history("first-run"),
+            &test_today_goal("first-run"),
             std::io::Cursor::new("123456\n"),
             &mut output,
             now(),
@@ -268,6 +287,7 @@ mod tests {
             &oauth_base(&server),
             &path,
             &test_history("verify-on-startup"),
+            &test_today_goal("verify-on-startup"),
             std::io::Cursor::new(""),
             &mut output,
             now(),
@@ -302,6 +322,7 @@ mod tests {
             &oauth_base(&server),
             &path,
             &test_history("reconnect"),
+            &test_today_goal("reconnect"),
             std::io::Cursor::new("123456\n"),
             &mut output,
             now(),
@@ -340,6 +361,7 @@ mod tests {
             &oauth_base(&server),
             &path,
             &test_history("re-open-first"),
+            &test_today_goal("re-open-first"),
             std::io::Cursor::new("123456\n"),
             &mut first_output,
             now(),
@@ -354,6 +376,7 @@ mod tests {
             &oauth_base(&server),
             &path,
             &test_history("re-open-second"),
+            &test_today_goal("re-open-second"),
             std::io::Cursor::new(""),
             &mut second_output,
             now(),
@@ -386,6 +409,7 @@ mod tests {
             &oauth_base(&server),
             &path,
             &test_history("exchange-failure"),
+            &test_today_goal("exchange-failure"),
             std::io::Cursor::new("123456\n"),
             &mut output,
             now(),
@@ -413,6 +437,7 @@ mod tests {
             &oauth_base(&server),
             &test_dir("report").join("config.json"),
             &test_history("report"),
+            &test_today_goal("report"),
             std::io::Cursor::new(""),
             &mut output,
             now(),
@@ -425,7 +450,8 @@ mod tests {
         assert_eq!(lines[1], "Yesterday · 1 replies");
         assert!(lines[2].contains("@bob"), "{text}");
         assert!(lines[2].contains("12 impressions"), "{text}");
-        assert_eq!(lines.len(), 3, "{text}");
+        assert_eq!(lines[3], report::render_today(1));
+        assert_eq!(lines.len(), 4, "{text}");
         assert!(text.ends_with('\n'));
     }
 
@@ -439,6 +465,7 @@ mod tests {
             r#"{"data":[{"id":"7","created_at":"2026-09-20T10:15:00.000Z","text":"hello there","public_metrics":{"impression_count":12,"like_count":3},"non_public_metrics":{"user_profile_clicks":4},"referenced_tweets":[{"type":"replied_to","id":"1"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#,
         );
         let history = test_history("save-on-fetch");
+        let today_goal = test_today_goal("save-on-fetch");
 
         run(
             connected_config(),
@@ -446,13 +473,14 @@ mod tests {
             &oauth_base(&server),
             &test_dir("save-on-fetch").join("config.json"),
             &history,
+            &today_goal,
             std::io::Cursor::new(""),
             &mut Vec::new(),
             now(),
         )
         .unwrap();
 
-        assert_eq!(tweets.calls(), 1);
+        assert_eq!(tweets.calls(), 2);
         let date = now().date_naive().pred_opt().unwrap();
         let saved = history.load(date).unwrap().unwrap();
         assert_eq!(saved.len(), 1);
@@ -469,6 +497,7 @@ mod tests {
             r#"{"data":[{"id":"7","created_at":"2026-09-20T10:15:00.000Z","text":"hello there","public_metrics":{"impression_count":12,"like_count":3},"non_public_metrics":{"user_profile_clicks":4},"referenced_tweets":[{"type":"replied_to","id":"1"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#,
         );
         let history = test_history("cached");
+        let today_goal = test_today_goal("cached");
         let path = test_dir("cached").join("config.json");
 
         run(
@@ -477,6 +506,7 @@ mod tests {
             &oauth_base(&server),
             &path,
             &history,
+            &today_goal,
             std::io::Cursor::new(""),
             &mut Vec::new(),
             now(),
@@ -490,13 +520,14 @@ mod tests {
             &oauth_base(&server),
             &path,
             &history,
+            &today_goal,
             std::io::Cursor::new(""),
             &mut second_output,
             now(),
         )
         .unwrap();
 
-        assert_eq!(tweets.calls(), 1);
+        assert_eq!(tweets.calls(), 2);
         let text = String::from_utf8(second_output).unwrap();
         assert!(text.contains("@bob"), "{text}");
         assert!(text.contains("12 impressions"), "{text}");
@@ -517,6 +548,7 @@ mod tests {
             &oauth_base(&failing_server),
             &test_dir("api-failure").join("config.json"),
             &history,
+            &test_today_goal("api-failure"),
             std::io::Cursor::new(""),
             &mut Vec::new(),
             now(),
@@ -535,13 +567,14 @@ mod tests {
             &oauth_base(&succeeding_server),
             &test_dir("api-failure-retry").join("config.json"),
             &history,
+            &test_today_goal("api-failure-retry"),
             std::io::Cursor::new(""),
             &mut Vec::new(),
             now(),
         )
         .unwrap();
 
-        assert_eq!(tweets.calls(), 1);
+        assert_eq!(tweets.calls(), 2);
     }
 
     #[test]
@@ -557,6 +590,7 @@ mod tests {
             &oauth_base(&server),
             &test_dir("empty-day").join("config.json"),
             &test_history("empty-day"),
+            &test_today_goal("empty-day"),
             std::io::Cursor::new(""),
             &mut output,
             now(),
@@ -564,7 +598,11 @@ mod tests {
         .unwrap();
 
         let text = String::from_utf8(output).unwrap();
-        assert!(text.ends_with("No replies yesterday.\n"), "{text}");
+        assert!(text.contains("No replies yesterday.\n"), "{text}");
+        assert!(
+            text.ends_with(&format!("{}\n", report::render_today(0))),
+            "{text}"
+        );
     }
 
     #[test]
@@ -579,11 +617,100 @@ mod tests {
             &oauth_base(&server),
             &test_dir("replies-failure").join("config.json"),
             &test_history("replies-failure"),
+            &test_today_goal("replies-failure"),
             std::io::Cursor::new(""),
             &mut Vec::new(),
             now(),
         );
 
         assert!(result.is_err());
+    }
+
+    fn seeded_history(name: &str) -> history::History {
+        let history = test_history(name);
+        let date = now().date_naive().pred_opt().unwrap();
+        history.save(date, &[]).unwrap();
+        history
+    }
+
+    #[test]
+    fn no_cached_today_count_fetches_from_api_saves_it_and_prints_today_line() {
+        let server = MockServer::start();
+        mock_users_me(&server, 200, "slickroot");
+        let tweets = mock_tweets(
+            &server,
+            200,
+            r#"{"data":[{"id":"7","created_at":"2026-09-20T10:15:00.000Z","text":"hello there","public_metrics":{"impression_count":12,"like_count":3},"non_public_metrics":{"user_profile_clicks":4},"referenced_tweets":[{"type":"replied_to","id":"1"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#,
+        );
+        let today_goal = test_today_goal("today-fetch-goal");
+        let mut output = Vec::new();
+
+        run(
+            connected_config(),
+            &api_base(&server),
+            &oauth_base(&server),
+            &test_dir("today-fetch-config").join("config.json"),
+            &seeded_history("today-fetch-history"),
+            &today_goal,
+            std::io::Cursor::new(""),
+            &mut output,
+            now(),
+        )
+        .unwrap();
+
+        assert_eq!(tweets.calls(), 1);
+        assert_eq!(today_goal.load(now()).unwrap(), Some(1));
+        let text = String::from_utf8(output).unwrap();
+        assert!(text.contains(&report::render_today(1)), "{text}");
+    }
+
+    #[test]
+    fn cached_fresh_today_count_is_reused_without_calling_api() {
+        let server = MockServer::start();
+        mock_users_me(&server, 200, "slickroot");
+        let tweets = mock_tweets(&server, 200, NO_TWEETS);
+        let today_goal = test_today_goal("today-cached-goal");
+        today_goal.save(3, now()).unwrap();
+        let mut output = Vec::new();
+
+        run(
+            connected_config(),
+            &api_base(&server),
+            &oauth_base(&server),
+            &test_dir("today-cached-config").join("config.json"),
+            &seeded_history("today-cached-history"),
+            &today_goal,
+            std::io::Cursor::new(""),
+            &mut output,
+            now(),
+        )
+        .unwrap();
+
+        assert_eq!(tweets.calls(), 0);
+        let text = String::from_utf8(output).unwrap();
+        assert!(text.contains(&report::render_today(3)), "{text}");
+    }
+
+    #[test]
+    fn today_fetch_failure_saves_nothing_and_propagates_error() {
+        let server = MockServer::start();
+        mock_users_me(&server, 200, "slickroot");
+        mock_tweets(&server, 500, "boom");
+        let today_goal = test_today_goal("today-failure-goal");
+
+        let result = run(
+            connected_config(),
+            &api_base(&server),
+            &oauth_base(&server),
+            &test_dir("today-failure-config").join("config.json"),
+            &seeded_history("today-failure-history"),
+            &today_goal,
+            std::io::Cursor::new(""),
+            &mut Vec::new(),
+            now(),
+        );
+
+        assert!(result.is_err());
+        assert!(today_goal.load(now()).unwrap().is_none());
     }
 }
