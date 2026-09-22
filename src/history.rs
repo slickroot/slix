@@ -38,7 +38,9 @@ impl History {
     pub fn save(&self, date: NaiveDate, replies: &[Reply]) -> Result<(), HistoryError> {
         std::fs::create_dir_all(&self.dir).map_err(HistoryError::Io)?;
         let path = self.path_for(date);
-        let temp_path = self.dir.join(format!("{date}.json.tmp-{}", std::process::id()));
+        let temp_path = self
+            .dir
+            .join(format!("{date}.json.tmp-{}", std::process::id()));
         let json = serde_json::to_vec_pretty(replies).map_err(HistoryError::Json)?;
         std::fs::write(&temp_path, json).map_err(HistoryError::Io)?;
         std::fs::rename(&temp_path, &path).map_err(HistoryError::Io)
@@ -80,8 +82,8 @@ mod tests {
     use super::*;
 
     fn test_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir()
-            .join(format!("slix-history-test-{}-{name}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("slix-history-test-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir

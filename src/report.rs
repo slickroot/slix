@@ -3,6 +3,18 @@ use chrono::TimeZone;
 
 const PREVIEW_LIMIT: usize = 50;
 const PREVIEW_WIDTH: usize = PREVIEW_LIMIT + 1;
+const DAILY_GOAL: u64 = 5;
+
+pub fn render_today(count: u64) -> String {
+    if count >= DAILY_GOAL {
+        format!("Today: {count} of {DAILY_GOAL} replies (goal met!)")
+    } else {
+        format!(
+            "Today: {count} of {DAILY_GOAL} replies ({} to go)",
+            DAILY_GOAL - count
+        )
+    }
+}
 
 pub fn render<Tz: TimeZone>(replies: &[Reply], tz: &Tz) -> String
 where
@@ -276,6 +288,38 @@ mod tests {
         assert_eq!(
             render(&[], &tz()),
             "Yesterday · 0 replies\nNo replies yesterday."
+        );
+    }
+
+    #[test]
+    fn shows_replies_to_go_below_the_daily_goal() {
+        assert_eq!(
+            render_today(3),
+            format!("Today: 3 of {DAILY_GOAL} replies (2 to go)")
+        );
+    }
+
+    #[test]
+    fn shows_goal_met_at_the_daily_goal() {
+        assert_eq!(
+            render_today(DAILY_GOAL),
+            format!("Today: {DAILY_GOAL} of {DAILY_GOAL} replies (goal met!)")
+        );
+    }
+
+    #[test]
+    fn shows_goal_met_above_the_daily_goal() {
+        assert_eq!(
+            render_today(7),
+            format!("Today: 7 of {DAILY_GOAL} replies (goal met!)")
+        );
+    }
+
+    #[test]
+    fn shows_replies_to_go_with_zero_replies() {
+        assert_eq!(
+            render_today(0),
+            format!("Today: 0 of {DAILY_GOAL} replies ({DAILY_GOAL} to go)")
         );
     }
 }
