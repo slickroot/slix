@@ -93,6 +93,16 @@ mod tests {
     }
 
     #[test]
+    fn load_for_date_with_no_file_returns_none() {
+        let history = History::new(test_dir("missing"));
+        let date = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap();
+
+        let loaded = history.load(date).unwrap();
+
+        assert!(loaded.is_none());
+    }
+
+    #[test]
     fn save_then_load_round_trips_replies_for_a_date() {
         let history = History::new(test_dir("roundtrip"));
         let date = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap();
