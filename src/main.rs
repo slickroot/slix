@@ -457,6 +457,49 @@ mod tests {
     }
 
     #[test]
+    fn later_run_same_day_loads_from_history_without_calling_api() {
+        let server = MockServer::start();
+        mock_users_me(&server, 200, "slickroot");
+        let tweets = mock_tweets(
+            &server,
+            200,
+            r#"{"data":[{"id":"7","created_at":"2026-09-20T10:15:00.000Z","text":"hello there","public_metrics":{"impression_count":12,"like_count":3},"non_public_metrics":{"user_profile_clicks":4},"referenced_tweets":[{"type":"replied_to","id":"1"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#,
+        );
+        let history = test_history("cached");
+        let path = test_dir("cached").join("config.json");
+
+        run(
+            connected_config(),
+            &api_base(&server),
+            &oauth_base(&server),
+            &path,
+            &history,
+            std::io::Cursor::new(""),
+            &mut Vec::new(),
+            now(),
+        )
+        .unwrap();
+
+        let mut second_output = Vec::new();
+        run(
+            connected_config(),
+            &api_base(&server),
+            &oauth_base(&server),
+            &path,
+            &history,
+            std::io::Cursor::new(""),
+            &mut second_output,
+            now(),
+        )
+        .unwrap();
+
+        assert_eq!(tweets.calls(), 1);
+        let text = String::from_utf8(second_output).unwrap();
+        assert!(text.contains("@bob"), "{text}");
+        assert!(text.contains("12 impressions"), "{text}");
+    }
+
+    #[test]
     fn empty_day_prints_no_replies_message() {
         let server = MockServer::start();
         mock_users_me(&server, 200, "slickroot");
