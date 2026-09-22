@@ -115,6 +115,17 @@ mod tests {
     }
 
     #[test]
+    fn saving_empty_list_round_trips_to_empty_vec() {
+        let history = History::new(test_dir("empty"));
+        let date = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap();
+
+        history.save(date, &[]).unwrap();
+        let loaded = history.load(date).unwrap();
+
+        assert!(matches!(loaded, Some(replies) if replies.is_empty()));
+    }
+
+    #[test]
     fn save_then_load_round_trips_replies_for_a_date() {
         let history = History::new(test_dir("roundtrip"));
         let date = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap();
