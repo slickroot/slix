@@ -500,6 +500,48 @@ mod tests {
     }
 
     #[test]
+    fn api_failure_on_first_run_saves_nothing_and_retries_next_run() {
+        let history = test_history("api-failure");
+        let date = now().date_naive().pred_opt().unwrap();
+
+        let failing_server = MockServer::start();
+        mock_users_me(&failing_server, 200, "slickroot");
+        mock_tweets(&failing_server, 500, "boom");
+
+        let result = run(
+            connected_config(),
+            &api_base(&failing_server),
+            &oauth_base(&failing_server),
+            &test_dir("api-failure").join("config.json"),
+            &history,
+            std::io::Cursor::new(""),
+            &mut Vec::new(),
+            now(),
+        );
+
+        assert!(result.is_err());
+        assert!(history.load(date).unwrap().is_none());
+
+        let succeeding_server = MockServer::start();
+        mock_users_me(&succeeding_server, 200, "slickroot");
+        let tweets = mock_tweets(&succeeding_server, 200, NO_TWEETS);
+
+        run(
+            connected_config(),
+            &api_base(&succeeding_server),
+            &oauth_base(&succeeding_server),
+            &test_dir("api-failure-retry").join("config.json"),
+            &history,
+            std::io::Cursor::new(""),
+            &mut Vec::new(),
+            now(),
+        )
+        .unwrap();
+
+        assert_eq!(tweets.calls(), 1);
+    }
+
+    #[test]
     fn empty_day_prints_no_replies_message() {
         let server = MockServer::start();
         mock_users_me(&server, 200, "slickroot");
