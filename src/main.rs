@@ -3,6 +3,7 @@ mod config;
 mod history;
 mod oauth;
 mod report;
+mod today;
 mod window;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
