@@ -14,6 +14,14 @@ impl Window {
             end: start_of_day(&now.timezone(), today),
         }
     }
+
+    pub fn today<Tz: TimeZone>(now: DateTime<Tz>) -> Window {
+        let today = now.date_naive();
+        Window {
+            start: start_of_day(&now.timezone(), today),
+            end: now.with_timezone(&Utc),
+        }
+    }
 }
 
 fn start_of_day<Tz: TimeZone>(zone: &Tz, date: NaiveDate) -> DateTime<Utc> {
@@ -81,5 +89,31 @@ mod tests {
             at(zone, 2018, 11, 4, 1, 0).with_timezone(&Utc)
         );
         assert_eq!(window.end, at(zone, 2018, 11, 5, 0, 0).with_timezone(&Utc));
+    }
+
+    #[test]
+    fn today_spans_local_midnight_to_now() {
+        let zone = Tz::Europe__Paris;
+        let now = at(zone, 2026, 3, 10, 15, 30);
+        let window = Window::today(now);
+
+        assert_eq!(
+            window.start,
+            at(zone, 2026, 3, 10, 0, 0).with_timezone(&Utc)
+        );
+        assert_eq!(window.end, now.with_timezone(&Utc));
+    }
+
+    #[test]
+    fn just_after_midnight_today_is_a_short_window() {
+        let zone = Tz::Europe__Paris;
+        let now = at(zone, 2026, 3, 10, 0, 1);
+        let window = Window::today(now);
+
+        assert_eq!(
+            window.start,
+            at(zone, 2026, 3, 10, 0, 0).with_timezone(&Utc)
+        );
+        assert_eq!(window.end, now.with_timezone(&Utc));
     }
 }
