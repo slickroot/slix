@@ -1074,4 +1074,38 @@ mod tests {
             vec![("1", 99)]
         );
     }
+
+    #[test]
+    fn save_replies_leaves_a_day_absent_from_the_batch_untouched() {
+        let history = test_history("save-replies-day-absent-from-batch");
+        let today = now().date_naive();
+        let untouched_day = today.pred_opt().unwrap().pred_opt().unwrap();
+
+        let preexisting_created_at = untouched_day
+            .and_hms_opt(9, 0, 0)
+            .unwrap()
+            .and_local_timezone(chrono::Local)
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        history
+            .save(untouched_day, &[reply_from("1", preexisting_created_at)])
+            .unwrap();
+
+        let today_reply = reply_from(
+            "2",
+            today
+                .and_hms_opt(9, 0, 0)
+                .unwrap()
+                .and_local_timezone(chrono::Local)
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+        );
+        save_replies(&history, vec![today_reply]).unwrap();
+
+        let untouched_saved = history.load(untouched_day).unwrap().unwrap();
+        assert_eq!(
+            untouched_saved,
+            vec![reply_from("1", preexisting_created_at)]
+        );
+    }
 }
