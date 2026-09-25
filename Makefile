@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := build
 
-.PHONY: build release fmt clippy
+.PHONY: build release fmt clippy test
 
 build:
 	nix develop --command cargo build
@@ -14,3 +14,6 @@ fmt:
 
 clippy:
 	nix develop --command cargo clippy -- -D warnings
+
+test:
+	nix develop --command cargo test
