@@ -93,6 +93,23 @@ fn write_report(
     Ok(())
 }
 
+#[allow(dead_code)]
+fn save_replies(
+    history: &history::History,
+    replies: Vec<api::Reply>,
+) -> Result<(), history::HistoryError> {
+    let mut by_day: std::collections::BTreeMap<chrono::NaiveDate, Vec<api::Reply>> =
+        std::collections::BTreeMap::new();
+    for reply in replies {
+        let date = reply.created_at.with_timezone(&chrono::Local).date_naive();
+        by_day.entry(date).or_default().push(reply);
+    }
+    for (date, replies) in by_day {
+        history.save(date, &replies)?;
+    }
+    Ok(())
+}
+
 #[derive(Debug)]
 struct Reconnected(#[allow(dead_code)] config::Config);
 
@@ -976,5 +993,56 @@ mod tests {
         assert_eq!(me.handle, format!("@{username}"));
         assert!(api.users_me().is_ok());
         assert!(output.is_empty());
+    }
+
+    fn reply_from(id: &str, created_at: chrono::DateTime<chrono::Utc>) -> api::Reply {
+        api::Reply {
+            id: id.into(),
+            created_at,
+            text: "hi".into(),
+            to_username: "bob".into(),
+            impressions: 1,
+            likes: 2,
+            profile_visits: 3,
+        }
+    }
+
+    #[test]
+    fn save_replies_saves_each_reply_under_its_local_posted_day() {
+        let history = test_history("save-replies-empty-history");
+        let now = now();
+        let today = now.date_naive();
+        let two_days_ago = today.pred_opt().unwrap().pred_opt().unwrap();
+
+        let today_reply = reply_from("1", now.with_timezone(&chrono::Utc));
+        let earlier_reply = reply_from(
+            "2",
+            two_days_ago
+                .and_hms_opt(10, 0, 0)
+                .unwrap()
+                .and_local_timezone(chrono::Local)
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+        );
+
+        save_replies(&history, vec![today_reply, earlier_reply]).unwrap();
+
+        let today_saved = history.load(today).unwrap().unwrap();
+        assert_eq!(
+            today_saved
+                .iter()
+                .map(|r| r.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["1"]
+        );
+
+        let earlier_saved = history.load(two_days_ago).unwrap().unwrap();
+        assert_eq!(
+            earlier_saved
+                .iter()
+                .map(|r| r.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["2"]
+        );
     }
 }
