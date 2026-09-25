@@ -22,6 +22,10 @@ impl Window {
             end: now.with_timezone(&Utc),
         }
     }
+
+    pub fn contains(&self, at: &DateTime<Utc>) -> bool {
+        self.start <= *at && *at < self.end
+    }
 }
 
 fn start_of_day<Tz: TimeZone>(zone: &Tz, date: NaiveDate) -> DateTime<Utc> {
@@ -115,5 +119,29 @@ mod tests {
             at(zone, 2026, 3, 10, 0, 0).with_timezone(&Utc)
         );
         assert_eq!(window.end, now.with_timezone(&Utc));
+    }
+
+    #[test]
+    fn contains_is_true_at_start() {
+        let window = Window::yesterday(at(Tz::Europe__Paris, 2026, 3, 10, 15, 30));
+
+        assert!(window.contains(&window.start));
+    }
+
+    #[test]
+    fn contains_is_false_at_end() {
+        let window = Window::yesterday(at(Tz::Europe__Paris, 2026, 3, 10, 15, 30));
+
+        assert!(!window.contains(&window.end));
+    }
+
+    #[test]
+    fn local_midnight_belongs_to_today_and_not_yesterday() {
+        let zone = Tz::Europe__Paris;
+        let now = at(zone, 2026, 3, 10, 15, 30);
+        let midnight = at(zone, 2026, 3, 10, 0, 0).with_timezone(&Utc);
+
+        assert!(Window::today(now).contains(&midnight));
+        assert!(!Window::yesterday(now).contains(&midnight));
     }
 }

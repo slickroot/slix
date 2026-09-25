@@ -52,10 +52,27 @@ fn write_report(
 ) -> Result<(), Box<dyn std::error::Error>> {
     writeln!(output, "{} · connected", me.handle)?;
     let date = now.date_naive().pred_opt().unwrap();
+    let latest = api.latest_replies(&me.id)?;
+    let today_count = match today_goal.load(now)? {
+        Some(count) => count,
+        None => {
+            let today = window::Window::today(now);
+            let count = latest
+                .iter()
+                .filter(|reply| today.contains(&reply.created_at))
+                .count() as u64;
+            today_goal.save(count, now)?;
+            count
+        }
+    };
     let replies = match history.load(date)? {
         Some(replies) => replies,
         None => {
-            let replies = api.replies(&me.id, &window::Window::yesterday(now))?;
+            let yesterday = window::Window::yesterday(now);
+            let replies: Vec<api::Reply> = latest
+                .into_iter()
+                .filter(|reply| yesterday.contains(&reply.created_at))
+                .collect();
             history.save(date, &replies)?;
             replies
         }
@@ -72,14 +89,6 @@ fn write_report(
     writeln!(output, "---")?;
     writeln!(output)?;
 
-    let today_count = match today_goal.load(now)? {
-        Some(count) => count,
-        None => {
-            let count = api.replies(&me.id, &window::Window::today(now))?.len() as u64;
-            today_goal.save(count, now)?;
-            count
-        }
-    };
     writeln!(output, "{}", report::render_today(today_count))?;
     Ok(())
 }
@@ -272,6 +281,19 @@ mod tests {
 
     fn now() -> chrono::DateTime<chrono::Local> {
         chrono::Local::now()
+    }
+
+    fn one_reply_body(created_at: chrono::DateTime<chrono::Local>) -> String {
+        format!(
+            r#"{{"data":[{{"id":"7","created_at":"{}","text":"hello there","public_metrics":{{"impression_count":12,"like_count":3}},"non_public_metrics":{{"user_profile_clicks":4}},"referenced_tweets":[{{"type":"replied_to","id":"1"}}],"in_reply_to_user_id":"9"}}],"includes":{{"users":[{{"id":"9","username":"bob"}}]}}}}"#,
+            created_at
+                .with_timezone(&chrono::Utc)
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        )
+    }
+
+    fn yesterday() -> chrono::DateTime<chrono::Local> {
+        now() - chrono::Duration::days(1)
     }
 
     fn api_base(server: &MockServer) -> String {
@@ -480,11 +502,7 @@ mod tests {
     fn connected_path_prints_report_after_handle() {
         let server = MockServer::start();
         mock_users_me(&server, 200, "slickroot");
-        mock_tweets(
-            &server,
-            200,
-            r#"{"data":[{"id":"7","created_at":"2026-09-20T10:15:00.000Z","text":"hello there","public_metrics":{"impression_count":12,"like_count":3},"non_public_metrics":{"user_profile_clicks":4},"referenced_tweets":[{"type":"replied_to","id":"1"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#,
-        );
+        mock_tweets(&server, 200, &one_reply_body(yesterday()));
         let mut output = Vec::new();
 
         connect_and_write_report(
@@ -514,20 +532,60 @@ mod tests {
         assert_eq!(lines[8], "");
         assert_eq!(lines[9], "---");
         assert_eq!(lines[10], "");
-        assert_eq!(lines[11], report::render_today(1));
+        assert_eq!(lines[11], report::render_today(0));
         assert_eq!(lines.len(), 12, "{text}");
         assert!(text.ends_with('\n'));
+    }
+
+    #[test]
+    fn one_fetch_fills_yesterday_and_today() {
+        let server = MockServer::start();
+        mock_users_me(&server, 200, "slickroot");
+        let now = now();
+        let reply = |id: &str, created_at: chrono::DateTime<chrono::Local>| {
+            format!(
+                r#"{{"id":"{id}","created_at":"{}","text":"hello there","public_metrics":{{"impression_count":12,"like_count":3}},"non_public_metrics":{{"user_profile_clicks":4}},"referenced_tweets":[{{"type":"replied_to","id":"1"}}],"in_reply_to_user_id":"9"}}"#,
+                created_at
+                    .with_timezone(&chrono::Utc)
+                    .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            )
+        };
+        let body = format!(
+            r#"{{"data":[{},{}],"includes":{{"users":[{{"id":"9","username":"bob"}}]}}}}"#,
+            reply("7", now - chrono::Duration::days(1)),
+            reply("8", now),
+        );
+        let tweets = mock_tweets(&server, 200, &body);
+        let mut output = Vec::new();
+
+        connect_and_write_report(
+            connected_config(),
+            &api_base(&server),
+            &oauth_base(&server),
+            &test_dir("one-fetch").join("config.json"),
+            &test_history("one-fetch"),
+            &test_today_goal("one-fetch"),
+            std::io::Cursor::new(""),
+            &mut output,
+            now,
+        )
+        .unwrap();
+
+        let text = String::from_utf8(output).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(tweets.calls(), 1);
+        assert_eq!(lines[1], "Yesterday · 1 replies");
+        assert_eq!(
+            lines.last().copied(),
+            Some(report::render_today(1).as_str())
+        );
     }
 
     #[test]
     fn first_run_of_day_saves_fetched_replies_to_history() {
         let server = MockServer::start();
         mock_users_me(&server, 200, "slickroot");
-        let tweets = mock_tweets(
-            &server,
-            200,
-            r#"{"data":[{"id":"7","created_at":"2026-09-20T10:15:00.000Z","text":"hello there","public_metrics":{"impression_count":12,"like_count":3},"non_public_metrics":{"user_profile_clicks":4},"referenced_tweets":[{"type":"replied_to","id":"1"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#,
-        );
+        let tweets = mock_tweets(&server, 200, &one_reply_body(yesterday()));
         let history = test_history("save-on-fetch");
         let today_goal = test_today_goal("save-on-fetch");
 
@@ -544,7 +602,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(tweets.calls(), 2);
+        assert_eq!(tweets.calls(), 1);
         let date = now().date_naive().pred_opt().unwrap();
         let saved = history.load(date).unwrap().unwrap();
         assert_eq!(saved.len(), 1);
@@ -552,14 +610,10 @@ mod tests {
     }
 
     #[test]
-    fn later_run_same_day_loads_from_history_without_calling_api() {
+    fn later_run_same_day_loads_yesterday_from_history() {
         let server = MockServer::start();
         mock_users_me(&server, 200, "slickroot");
-        let tweets = mock_tweets(
-            &server,
-            200,
-            r#"{"data":[{"id":"7","created_at":"2026-09-20T10:15:00.000Z","text":"hello there","public_metrics":{"impression_count":12,"like_count":3},"non_public_metrics":{"user_profile_clicks":4},"referenced_tweets":[{"type":"replied_to","id":"1"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#,
-        );
+        let tweets = mock_tweets(&server, 200, &one_reply_body(yesterday()));
         let history = test_history("cached");
         let today_goal = test_today_goal("cached");
         let path = test_dir("cached").join("config.json");
@@ -577,11 +631,14 @@ mod tests {
         )
         .unwrap();
 
+        let second_server = MockServer::start();
+        mock_users_me(&second_server, 200, "slickroot");
+        let second_tweets = mock_tweets(&second_server, 200, NO_TWEETS);
         let mut second_output = Vec::new();
         connect_and_write_report(
             connected_config(),
-            &api_base(&server),
-            &oauth_base(&server),
+            &api_base(&second_server),
+            &oauth_base(&second_server),
             &path,
             &history,
             &today_goal,
@@ -591,7 +648,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(tweets.calls(), 2);
+        assert_eq!(tweets.calls(), 1);
+        assert_eq!(second_tweets.calls(), 1);
         let text = String::from_utf8(second_output).unwrap();
         assert!(text.contains("@bob"), "{text}");
         assert!(text.contains("12 impressions"), "{text}");
@@ -604,7 +662,7 @@ mod tests {
 
         let failing_server = MockServer::start();
         mock_users_me(&failing_server, 200, "slickroot");
-        mock_tweets(&failing_server, 500, "boom");
+        let failing_tweets = mock_tweets(&failing_server, 500, "boom");
 
         let result = connect_and_write_report(
             connected_config(),
@@ -619,6 +677,7 @@ mod tests {
         );
 
         assert!(result.is_err());
+        assert_eq!(failing_tweets.calls(), 1);
         assert!(history.load(date).unwrap().is_none());
 
         let succeeding_server = MockServer::start();
@@ -638,7 +697,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(tweets.calls(), 2);
+        assert_eq!(tweets.calls(), 1);
     }
 
     #[test]
@@ -673,11 +732,7 @@ mod tests {
     fn accounts_section_appears_between_history_and_today_with_dividers() {
         let server = MockServer::start();
         mock_users_me(&server, 200, "slickroot");
-        mock_tweets(
-            &server,
-            200,
-            r#"{"data":[{"id":"7","created_at":"2026-09-20T10:15:00.000Z","text":"hello there","public_metrics":{"impression_count":12,"like_count":3},"non_public_metrics":{"user_profile_clicks":4},"referenced_tweets":[{"type":"replied_to","id":"1"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#,
-        );
+        mock_tweets(&server, 200, &one_reply_body(yesterday()));
         let history = test_history("accounts-section");
         let earlier_date = now().date_naive().pred_opt().unwrap().pred_opt().unwrap();
         history
@@ -723,7 +778,7 @@ mod tests {
         assert_eq!(lines[9], "");
         assert_eq!(lines[10], "---");
         assert_eq!(lines[11], "");
-        assert_eq!(lines[12], report::render_today(1));
+        assert_eq!(lines[12], report::render_today(0));
     }
 
     #[test]
@@ -794,11 +849,7 @@ mod tests {
     fn no_cached_today_count_fetches_from_api_saves_it_and_prints_today_line() {
         let server = MockServer::start();
         mock_users_me(&server, 200, "slickroot");
-        let tweets = mock_tweets(
-            &server,
-            200,
-            r#"{"data":[{"id":"7","created_at":"2026-09-20T10:15:00.000Z","text":"hello there","public_metrics":{"impression_count":12,"like_count":3},"non_public_metrics":{"user_profile_clicks":4},"referenced_tweets":[{"type":"replied_to","id":"1"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#,
-        );
+        let tweets = mock_tweets(&server, 200, &one_reply_body(now()));
         let today_goal = test_today_goal("today-fetch-goal");
         let mut output = Vec::new();
 
@@ -822,10 +873,10 @@ mod tests {
     }
 
     #[test]
-    fn cached_fresh_today_count_is_reused_without_calling_api() {
+    fn cached_fresh_today_count_is_reused_over_fetched_posts() {
         let server = MockServer::start();
         mock_users_me(&server, 200, "slickroot");
-        let tweets = mock_tweets(&server, 200, NO_TWEETS);
+        let tweets = mock_tweets(&server, 200, &one_reply_body(now()));
         let today_goal = test_today_goal("today-cached-goal");
         today_goal.save(3, now()).unwrap();
         let mut output = Vec::new();
@@ -843,9 +894,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(tweets.calls(), 0);
+        assert_eq!(tweets.calls(), 1);
         let text = String::from_utf8(output).unwrap();
         assert!(text.contains(&report::render_today(3)), "{text}");
+        assert!(!text.contains(&report::render_today(1)), "{text}");
     }
 
     #[test]
