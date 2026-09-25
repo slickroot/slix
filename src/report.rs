@@ -17,6 +17,13 @@ pub fn render_today(count: u64) -> String {
     }
 }
 
+pub fn render_grid(counts: &[u64]) -> String {
+    counts
+        .iter()
+        .map(|&count| if count >= DAILY_GOAL { '■' } else { '□' })
+        .collect()
+}
+
 pub fn render<Tz: TimeZone>(replies: &[Reply], tz: &Tz) -> String
 where
     Tz::Offset: std::fmt::Display,
@@ -390,6 +397,26 @@ mod tests {
             render_today(0),
             format!("Today: 0 of {DAILY_GOAL} replies ({DAILY_GOAL} to go)")
         );
+    }
+
+    #[test]
+    fn shows_filled_square_for_days_meeting_the_goal() {
+        assert_eq!(render_grid(&[DAILY_GOAL]), "■");
+    }
+
+    #[test]
+    fn shows_hollow_square_for_days_below_the_goal() {
+        assert_eq!(render_grid(&[DAILY_GOAL - 1]), "□");
+    }
+
+    #[test]
+    fn shows_hollow_square_for_a_day_with_no_replies() {
+        assert_eq!(render_grid(&[0]), "□");
+    }
+
+    #[test]
+    fn joins_multiple_days_with_no_separators() {
+        assert_eq!(render_grid(&[0, DAILY_GOAL, DAILY_GOAL + 1]), "□■■");
     }
 
     fn account(handle: &str, avg_impressions: f64, reply_count: usize) -> accounts::AccountRank {
