@@ -5,6 +5,7 @@ use chrono::TimeZone;
 const PREVIEW_LIMIT: usize = 50;
 const PREVIEW_WIDTH: usize = PREVIEW_LIMIT + 1;
 const DAILY_GOAL: u64 = 5;
+pub const GRID_TITLE: &str = "Last 30 days";
 
 pub fn render_today(count: u64) -> String {
     if count >= DAILY_GOAL {
@@ -15,6 +16,15 @@ pub fn render_today(count: u64) -> String {
             DAILY_GOAL - count
         )
     }
+}
+
+pub fn render_grid(counts: &[u64]) -> String {
+    let squares = counts
+        .iter()
+        .map(|&count| if count >= DAILY_GOAL { "■" } else { "·" })
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!("{GRID_TITLE}\n{squares}")
 }
 
 pub fn render<Tz: TimeZone>(replies: &[Reply], tz: &Tz) -> String
@@ -390,6 +400,37 @@ mod tests {
             render_today(0),
             format!("Today: 0 of {DAILY_GOAL} replies ({DAILY_GOAL} to go)")
         );
+    }
+
+    fn grid_squares(counts: &[u64]) -> String {
+        render_grid(counts).lines().nth(1).unwrap().to_string()
+    }
+
+    #[test]
+    fn grid_has_title_line_above_the_squares() {
+        let out = render_grid(&[0, DAILY_GOAL]);
+        assert_eq!(out.lines().next(), Some(GRID_TITLE));
+        assert_eq!(out.lines().count(), 2);
+    }
+
+    #[test]
+    fn shows_filled_square_for_days_meeting_the_goal() {
+        assert_eq!(grid_squares(&[DAILY_GOAL]), "■");
+    }
+
+    #[test]
+    fn shows_dot_for_days_below_the_goal() {
+        assert_eq!(grid_squares(&[DAILY_GOAL - 1]), "·");
+    }
+
+    #[test]
+    fn shows_dot_for_a_day_with_no_replies() {
+        assert_eq!(grid_squares(&[0]), "·");
+    }
+
+    #[test]
+    fn joins_multiple_days_with_a_single_space() {
+        assert_eq!(grid_squares(&[0, DAILY_GOAL, DAILY_GOAL + 1]), "· ■ ■");
     }
 
     fn account(handle: &str, avg_impressions: f64, reply_count: usize) -> accounts::AccountRank {

@@ -67,6 +67,16 @@ impl History {
         Ok(replies)
     }
 
+    pub fn last_30_day_counts(&self, today: NaiveDate) -> Result<Vec<u64>, HistoryError> {
+        let mut counts = Vec::with_capacity(30);
+        for days_ago in (0..30).rev() {
+            let date = today - chrono::Duration::days(days_ago);
+            let count = self.load(date)?.unwrap_or_default().len() as u64;
+            counts.push(count);
+        }
+        Ok(counts)
+    }
+
     pub fn save(&self, date: NaiveDate, replies: &[Reply]) -> Result<(), HistoryError> {
         std::fs::create_dir_all(&self.dir).map_err(HistoryError::Io)?;
         let path = self.path_for(date);
@@ -242,6 +252,46 @@ mod tests {
         let result = history.load_all();
 
         assert!(matches!(result, Err(HistoryError::Json(_))), "{result:?}");
+    }
+
+    #[test]
+    fn last_30_day_counts_has_30_entries_oldest_first_today_last() {
+        let history = History::new(test_dir("last-30-basic"));
+        let today = NaiveDate::from_ymd_opt(2026, 9, 26).unwrap();
+        let oldest = today - chrono::Duration::days(29);
+        history.save(oldest, &[sample_reply("1")]).unwrap();
+        history
+            .save(today, &[sample_reply("2"), sample_reply("3")])
+            .unwrap();
+
+        let counts = history.last_30_day_counts(today).unwrap();
+
+        assert_eq!(counts.len(), 30);
+        assert_eq!(counts.first(), Some(&1));
+        assert_eq!(counts.last(), Some(&2));
+    }
+
+    #[test]
+    fn last_30_day_counts_defaults_to_zero_for_days_with_no_file() {
+        let history = History::new(test_dir("last-30-empty"));
+        let today = NaiveDate::from_ymd_opt(2026, 9, 26).unwrap();
+
+        let counts = history.last_30_day_counts(today).unwrap();
+
+        assert!(counts.iter().all(|&count| count == 0));
+    }
+
+    #[test]
+    fn last_30_day_counts_reflects_replies_saved_for_a_middle_day() {
+        let history = History::new(test_dir("last-30-middle"));
+        let today = NaiveDate::from_ymd_opt(2026, 9, 26).unwrap();
+        let middle_day = today - chrono::Duration::days(10);
+        let replies = vec![sample_reply("1"), sample_reply("2"), sample_reply("3")];
+        history.save(middle_day, &replies).unwrap();
+
+        let counts = history.last_30_day_counts(today).unwrap();
+
+        assert_eq!(counts[19], replies.len() as u64);
     }
 
     #[test]
