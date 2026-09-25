@@ -1045,4 +1045,33 @@ mod tests {
             vec!["2"]
         );
     }
+
+    #[test]
+    fn save_replies_called_twice_for_same_day_replaces_the_file_outright() {
+        let history = test_history("save-replies-twice-same-day");
+        let today = now().date_naive();
+        let created_at = today
+            .and_hms_opt(9, 0, 0)
+            .unwrap()
+            .and_local_timezone(chrono::Local)
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+
+        let mut first_reply = reply_from("1", created_at);
+        first_reply.impressions = 5;
+        save_replies(&history, vec![first_reply]).unwrap();
+
+        let mut second_reply = reply_from("1", created_at);
+        second_reply.impressions = 99;
+        save_replies(&history, vec![second_reply]).unwrap();
+
+        let saved = history.load(today).unwrap().unwrap();
+        assert_eq!(
+            saved
+                .iter()
+                .map(|r| (r.id.as_str(), r.impressions))
+                .collect::<Vec<_>>(),
+            vec![("1", 99)]
+        );
+    }
 }
