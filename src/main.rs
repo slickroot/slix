@@ -379,7 +379,7 @@ mod tests {
 
         let text = String::from_utf8(output).unwrap();
         assert_eq!(
-            text.lines().nth(3).unwrap(),
+            text.lines().nth(4).unwrap(),
             format!("@{username} · connected")
         );
         assert_eq!(request_token.calls(), 0);
@@ -468,7 +468,7 @@ mod tests {
 
         let text = String::from_utf8(second_output).unwrap();
         assert_eq!(
-            text.lines().nth(3).unwrap(),
+            text.lines().nth(4).unwrap(),
             format!("@{username} · connected")
         );
         assert_eq!(request_token.calls(), 1);
@@ -541,20 +541,20 @@ mod tests {
 
         let text = String::from_utf8(output).unwrap();
         let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines[3], "@slickroot · connected");
-        assert_eq!(lines[4], "Yesterday · 1 replies");
-        assert!(lines[5].contains("@bob"), "{text}");
-        assert!(lines[5].contains("12 impressions"), "{text}");
-        assert_eq!(lines[6], "");
-        assert_eq!(lines[7], "---");
-        assert_eq!(lines[8], "");
-        assert_eq!(lines[9], "Accounts");
-        assert!(lines[10].contains("@bob"), "{text}");
-        assert_eq!(lines[11], "");
-        assert_eq!(lines[12], "---");
-        assert_eq!(lines[13], "");
-        assert_eq!(lines[14], report::render_today(0));
-        assert_eq!(lines.len(), 15, "{text}");
+        assert_eq!(lines[4], "@slickroot · connected");
+        assert_eq!(lines[5], "Yesterday · 1 replies");
+        assert!(lines[6].contains("@bob"), "{text}");
+        assert!(lines[6].contains("12 impressions"), "{text}");
+        assert_eq!(lines[7], "");
+        assert_eq!(lines[8], "---");
+        assert_eq!(lines[9], "");
+        assert_eq!(lines[10], "Accounts");
+        assert!(lines[11].contains("@bob"), "{text}");
+        assert_eq!(lines[12], "");
+        assert_eq!(lines[13], "---");
+        assert_eq!(lines[14], "");
+        assert_eq!(lines[15], report::render_today(0));
+        assert_eq!(lines.len(), 16, "{text}");
         assert!(text.ends_with('\n'));
     }
 
@@ -588,12 +588,14 @@ mod tests {
 
         let text = String::from_utf8(output).unwrap();
         let lines: Vec<&str> = text.lines().collect();
-        let empty_days = report::render_grid(&[0; 29]);
-        let goal_met_today = report::render_grid(&[u64::MAX]);
-        assert_eq!(lines[0], format!("{empty_days}{goal_met_today}"), "{text}");
-        assert_eq!(lines[1], "");
-        assert_eq!(lines[2], "---");
-        assert_eq!(lines[3], "@slickroot · connected");
+        let mut counts = vec![0; 29];
+        counts.push(u64::MAX);
+        let expected_grid = report::render_grid(&counts);
+        assert_eq!(lines[0], report::GRID_TITLE, "{text}");
+        assert_eq!(lines[1], expected_grid.lines().nth(1).unwrap(), "{text}");
+        assert_eq!(lines[2], "");
+        assert_eq!(lines[3], "---");
+        assert_eq!(lines[4], "@slickroot · connected");
     }
 
     #[test]
@@ -677,19 +679,19 @@ mod tests {
 
         let text = String::from_utf8(output).unwrap();
         let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines[3], "@slickroot · connected");
-        assert_eq!(lines[4], "Yesterday · 1 replies");
-        assert!(lines[5].contains("@bob"), "{text}");
-        assert_eq!(lines[6], "");
-        assert_eq!(lines[7], "---");
-        assert_eq!(lines[8], "");
-        assert_eq!(lines[9], "Accounts");
-        assert!(lines[10].contains("@alice"), "{text}");
-        assert!(lines[11].contains("@bob"), "{text}");
-        assert_eq!(lines[12], "");
-        assert_eq!(lines[13], "---");
-        assert_eq!(lines[14], "");
-        assert_eq!(lines[15], report::render_today(0));
+        assert_eq!(lines[4], "@slickroot · connected");
+        assert_eq!(lines[5], "Yesterday · 1 replies");
+        assert!(lines[6].contains("@bob"), "{text}");
+        assert_eq!(lines[7], "");
+        assert_eq!(lines[8], "---");
+        assert_eq!(lines[9], "");
+        assert_eq!(lines[10], "Accounts");
+        assert!(lines[11].contains("@alice"), "{text}");
+        assert!(lines[12].contains("@bob"), "{text}");
+        assert_eq!(lines[13], "");
+        assert_eq!(lines[14], "---");
+        assert_eq!(lines[15], "");
+        assert_eq!(lines[16], report::render_today(0));
     }
 
     #[test]
@@ -714,18 +716,18 @@ mod tests {
 
         let text = String::from_utf8(output).unwrap();
         let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines[3], "@slickroot · connected");
-        assert_eq!(lines[4], "Yesterday · 0 replies");
-        assert_eq!(lines[5], "No replies yesterday.");
-        assert_eq!(lines[6], "");
-        assert_eq!(lines[7], "---");
-        assert_eq!(lines[8], "");
-        assert_eq!(lines[9], "Accounts");
-        assert_eq!(lines[10], "No data yet.");
-        assert_eq!(lines[11], "");
-        assert_eq!(lines[12], "---");
-        assert_eq!(lines[13], "");
-        assert_eq!(lines[14], report::render_today(0));
+        assert_eq!(lines[4], "@slickroot · connected");
+        assert_eq!(lines[5], "Yesterday · 0 replies");
+        assert_eq!(lines[6], "No replies yesterday.");
+        assert_eq!(lines[7], "");
+        assert_eq!(lines[8], "---");
+        assert_eq!(lines[9], "");
+        assert_eq!(lines[10], "Accounts");
+        assert_eq!(lines[11], "No data yet.");
+        assert_eq!(lines[12], "");
+        assert_eq!(lines[13], "---");
+        assert_eq!(lines[14], "");
+        assert_eq!(lines[15], report::render_today(0));
     }
 
     fn seeded_history(name: &str) -> history::History {
