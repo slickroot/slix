@@ -15,7 +15,7 @@
         in
         {
           default = pkgs.mkShell {
-            packages = with pkgs; [ cargo rustc rustfmt ];
+            packages = with pkgs; [ cargo rustc rustfmt clippy ];
           };
         });
     };

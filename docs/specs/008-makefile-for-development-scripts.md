@@ -22,4 +22,5 @@ so `clippy` is available to run.
 - `fmt`: `nix develop --command cargo fmt` — rewrites files in place.
 - `clippy`: `nix develop --command cargo clippy -- -D warnings` — fails the
   build on any warning; zero warnings is the standing bar.
-- All targets declared `.PHONY` (`build`, `release`, `fmt`, `clippy`).
+- `test`: `nix develop --command cargo test`.
+- All targets declared `.PHONY` (`build`, `release`, `fmt`, `clippy`, `test`).
