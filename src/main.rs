@@ -1,11 +1,9 @@
 mod accounts;
-#[allow(dead_code)]
 mod api;
 mod config;
 mod history;
 mod oauth;
 mod report;
-#[allow(dead_code)]
 mod today;
 #[allow(dead_code)]
 mod window;
@@ -27,14 +25,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::io::stdin().lock(),
         &mut output,
     ) {
-        Ok((_config, _api, me)) => {
-            write_report(
-                &me,
-                &history,
-                &today_goal,
-                chrono::Local::now(),
-                &mut output,
-            )?;
+        Ok((_config, api, me)) => {
+            let now = chrono::Local::now();
+            let latest = api.latest_replies(&me.id)?;
+            save_replies(&history, latest)?;
+            let today_count = history.load(now.date_naive())?.unwrap_or_default().len() as u64;
+            today_goal.save(today_count, now)?;
+            write_report(&me, &history, &today_goal, now, &mut output)?;
         }
         Err(err) => match err.downcast::<Reconnected>() {
             Ok(_) => {}
@@ -71,7 +68,6 @@ fn write_report(
     Ok(())
 }
 
-#[allow(dead_code)]
 fn save_replies(
     history: &history::History,
     replies: Vec<api::Reply>,
@@ -184,7 +180,11 @@ mod tests {
         now: chrono::DateTime<chrono::Local>,
     ) -> Result<config::Config, Box<dyn std::error::Error>> {
         match connect(config, api_base, oauth_base, path, input, &mut output) {
-            Ok((config, _api, me)) => {
+            Ok((config, api, me)) => {
+                let latest = api.latest_replies(&me.id)?;
+                save_replies(history, latest)?;
+                let today_count = history.load(now.date_naive())?.unwrap_or_default().len() as u64;
+                today_goal.save(today_count, now)?;
                 write_report(&me, history, today_goal, now, &mut output)?;
                 Ok(config)
             }
@@ -274,6 +274,25 @@ mod tests {
 
     const NO_TWEETS: &str = r#"{"meta":{"result_count":0}}"#;
 
+    fn tweet_json(id: &str, created_at: chrono::DateTime<chrono::Utc>, to_user_id: &str) -> String {
+        format!(
+            r#"{{"id":"{id}","created_at":"{}","text":"hi","public_metrics":{{"impression_count":1,"like_count":2}},"non_public_metrics":{{"user_profile_clicks":3}},"referenced_tweets":[{{"type":"replied_to","id":"100"}}],"in_reply_to_user_id":"{to_user_id}"}}"#,
+            created_at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+        )
+    }
+
+    fn included_user_json(id: &str, username: &str) -> String {
+        format!(r#"{{"id":"{id}","username":"{username}"}}"#)
+    }
+
+    fn tweets_body(tweets: &[String], users: &[String]) -> String {
+        format!(
+            r#"{{"data":[{}],"includes":{{"users":[{}]}}}}"#,
+            tweets.join(","),
+            users.join(",")
+        )
+    }
+
     fn now() -> chrono::DateTime<chrono::Local> {
         chrono::Local::now()
     }
@@ -293,6 +312,7 @@ mod tests {
         mock_access_token(&server, 200);
         let username = "slickroot";
         mock_users_me(&server, 200, username);
+        mock_tweets(&server, 200, NO_TWEETS);
 
         let path = test_dir("first-run").join("config.json");
         let mut output = Vec::new();
@@ -335,6 +355,7 @@ mod tests {
         let access_token = mock_access_token(&server, 200);
         let username = "slickroot";
         mock_users_me(&server, 200, username);
+        mock_tweets(&server, 200, NO_TWEETS);
 
         let path = test_dir("verify-on-startup").join("config.json");
         let mut output = Vec::new();
@@ -408,6 +429,7 @@ mod tests {
         let access_token = mock_access_token(&server, 200);
         let username = "slickroot";
         let users_me = mock_users_me(&server, 200, username);
+        mock_tweets(&server, 200, NO_TWEETS);
 
         let path = test_dir("re-open").join("config.json");
 
@@ -481,6 +503,7 @@ mod tests {
     fn connected_path_prints_report_after_handle() {
         let server = MockServer::start();
         mock_users_me(&server, 200, "slickroot");
+        mock_tweets(&server, 200, NO_TWEETS);
         let history = test_history("report");
         let date = now().date_naive().pred_opt().unwrap();
         history
@@ -535,6 +558,7 @@ mod tests {
     fn empty_day_prints_no_replies_message() {
         let server = MockServer::start();
         mock_users_me(&server, 200, "slickroot");
+        mock_tweets(&server, 200, NO_TWEETS);
         let mut output = Vec::new();
 
         connect_and_write_report(
@@ -562,6 +586,7 @@ mod tests {
     fn accounts_section_appears_between_history_and_today_with_dividers() {
         let server = MockServer::start();
         mock_users_me(&server, 200, "slickroot");
+        mock_tweets(&server, 200, NO_TWEETS);
         let history = test_history("accounts-section");
         let yesterday_date = now().date_naive().pred_opt().unwrap();
         let earlier_date = yesterday_date.pred_opt().unwrap();
@@ -629,6 +654,7 @@ mod tests {
     fn accounts_section_shows_no_data_yet_when_history_empty() {
         let server = MockServer::start();
         mock_users_me(&server, 200, "slickroot");
+        mock_tweets(&server, 200, NO_TWEETS);
         let mut output = Vec::new();
 
         connect_and_write_report(
@@ -668,11 +694,17 @@ mod tests {
     }
 
     #[test]
-    fn cached_today_count_is_rendered() {
+    fn today_count_is_derived_from_the_fresh_fetch_not_a_stale_cache() {
         let server = MockServer::start();
         mock_users_me(&server, 200, "slickroot");
+        let today = now();
+        let body = tweets_body(
+            &[tweet_json("42", today.with_timezone(&chrono::Utc), "9")],
+            &[included_user_json("9", "bob")],
+        );
+        mock_tweets(&server, 200, &body);
         let today_goal = test_today_goal("today-cached-goal");
-        today_goal.save(3, now()).unwrap();
+        today_goal.save(3, today).unwrap();
         let mut output = Vec::new();
 
         connect_and_write_report(
@@ -684,12 +716,12 @@ mod tests {
             &today_goal,
             std::io::Cursor::new(""),
             &mut output,
-            now(),
+            today,
         )
         .unwrap();
 
         let text = String::from_utf8(output).unwrap();
-        assert!(text.contains(&report::render_today(3)), "{text}");
+        assert!(text.contains(&report::render_today(1)), "{text}");
     }
 
     #[test]
@@ -859,5 +891,73 @@ mod tests {
             untouched_saved,
             vec![reply_from("1", preexisting_created_at)]
         );
+    }
+
+    #[test]
+    fn fetch_spanning_a_skipped_day_saves_every_reply_under_its_own_day() {
+        let server = MockServer::start();
+        mock_users_me(&server, 200, "slickroot");
+        let now = now();
+        let today = now.date_naive();
+        let skipped_day = today.pred_opt().unwrap().pred_opt().unwrap();
+        let skipped_day_created_at = skipped_day
+            .and_hms_opt(9, 0, 0)
+            .unwrap()
+            .and_local_timezone(chrono::Local)
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+
+        let body = tweets_body(
+            &[
+                tweet_json("1", now.with_timezone(&chrono::Utc), "9"),
+                tweet_json("2", skipped_day_created_at, "10"),
+            ],
+            &[
+                included_user_json("9", "carol"),
+                included_user_json("10", "dave"),
+            ],
+        );
+        mock_tweets(&server, 200, &body);
+
+        let history = test_history("acceptance-skipped-day");
+        let today_goal = test_today_goal("acceptance-skipped-day");
+        let mut output = Vec::new();
+
+        connect_and_write_report(
+            connected_config(),
+            &api_base(&server),
+            &oauth_base(&server),
+            &test_dir("acceptance-skipped-day-config").join("config.json"),
+            &history,
+            &today_goal,
+            std::io::Cursor::new(""),
+            &mut output,
+            now,
+        )
+        .unwrap();
+
+        let today_saved = history.load(today).unwrap().unwrap();
+        assert_eq!(
+            today_saved
+                .iter()
+                .map(|r| r.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["1"]
+        );
+
+        let skipped_day_saved = history.load(skipped_day).unwrap().unwrap();
+        assert_eq!(
+            skipped_day_saved
+                .iter()
+                .map(|r| r.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["2"]
+        );
+
+        let text = String::from_utf8(output).unwrap();
+        assert!(text.contains("@dave"), "{text}");
+
+        assert_eq!(today_goal.load(now).unwrap(), Some(1));
+        assert!(text.contains(&report::render_today(1)), "{text}");
     }
 }
