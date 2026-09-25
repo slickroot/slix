@@ -48,6 +48,10 @@ fn write_report(
     now: chrono::DateTime<chrono::Local>,
     output: &mut impl std::io::Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let counts = history.last_30_day_counts(now.date_naive())?;
+    writeln!(output, "{}", report::render_grid(&counts))?;
+    writeln!(output)?;
+    writeln!(output, "---")?;
     writeln!(output, "{} · connected", me.handle)?;
     let date = now.date_naive().pred_opt().unwrap();
     let today_count = today_goal.load(now)?.unwrap_or(0);
@@ -375,7 +379,7 @@ mod tests {
 
         let text = String::from_utf8(output).unwrap();
         assert_eq!(
-            text.lines().next().unwrap(),
+            text.lines().nth(3).unwrap(),
             format!("@{username} · connected")
         );
         assert_eq!(request_token.calls(), 0);
@@ -464,7 +468,7 @@ mod tests {
 
         let text = String::from_utf8(second_output).unwrap();
         assert_eq!(
-            text.lines().next().unwrap(),
+            text.lines().nth(3).unwrap(),
             format!("@{username} · connected")
         );
         assert_eq!(request_token.calls(), 1);
@@ -537,21 +541,59 @@ mod tests {
 
         let text = String::from_utf8(output).unwrap();
         let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines[0], "@slickroot · connected");
-        assert_eq!(lines[1], "Yesterday · 1 replies");
-        assert!(lines[2].contains("@bob"), "{text}");
-        assert!(lines[2].contains("12 impressions"), "{text}");
-        assert_eq!(lines[3], "");
-        assert_eq!(lines[4], "---");
-        assert_eq!(lines[5], "");
-        assert_eq!(lines[6], "Accounts");
-        assert!(lines[7].contains("@bob"), "{text}");
+        assert_eq!(lines[3], "@slickroot · connected");
+        assert_eq!(lines[4], "Yesterday · 1 replies");
+        assert!(lines[5].contains("@bob"), "{text}");
+        assert!(lines[5].contains("12 impressions"), "{text}");
+        assert_eq!(lines[6], "");
+        assert_eq!(lines[7], "---");
         assert_eq!(lines[8], "");
-        assert_eq!(lines[9], "---");
-        assert_eq!(lines[10], "");
-        assert_eq!(lines[11], report::render_today(0));
-        assert_eq!(lines.len(), 12, "{text}");
+        assert_eq!(lines[9], "Accounts");
+        assert!(lines[10].contains("@bob"), "{text}");
+        assert_eq!(lines[11], "");
+        assert_eq!(lines[12], "---");
+        assert_eq!(lines[13], "");
+        assert_eq!(lines[14], report::render_today(0));
+        assert_eq!(lines.len(), 15, "{text}");
         assert!(text.ends_with('\n'));
+    }
+
+    #[test]
+    fn report_starts_with_thirty_day_grid_then_divider_then_handle() {
+        let server = MockServer::start();
+        mock_users_me(&server, 200, "slickroot");
+        let today = now();
+        let tweets: Vec<String> = (0..100)
+            .map(|id| tweet_json(&id.to_string(), today.with_timezone(&chrono::Utc), "9"))
+            .collect();
+        mock_tweets(
+            &server,
+            200,
+            &tweets_body(&tweets, &[included_user_json("9", "bob")]),
+        );
+        let mut output = Vec::new();
+
+        connect_and_write_report(
+            connected_config(),
+            &api_base(&server),
+            &oauth_base(&server),
+            &test_dir("grid-config").join("config.json"),
+            &test_history("grid-history"),
+            &test_today_goal("grid-today"),
+            std::io::Cursor::new(""),
+            &mut output,
+            today,
+        )
+        .unwrap();
+
+        let text = String::from_utf8(output).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        let empty_days = report::render_grid(&[0; 29]);
+        let goal_met_today = report::render_grid(&[u64::MAX]);
+        assert_eq!(lines[0], format!("{empty_days}{goal_met_today}"), "{text}");
+        assert_eq!(lines[1], "");
+        assert_eq!(lines[2], "---");
+        assert_eq!(lines[3], "@slickroot · connected");
     }
 
     #[test]
@@ -635,19 +677,19 @@ mod tests {
 
         let text = String::from_utf8(output).unwrap();
         let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines[0], "@slickroot · connected");
-        assert_eq!(lines[1], "Yesterday · 1 replies");
-        assert!(lines[2].contains("@bob"), "{text}");
-        assert_eq!(lines[3], "");
-        assert_eq!(lines[4], "---");
-        assert_eq!(lines[5], "");
-        assert_eq!(lines[6], "Accounts");
-        assert!(lines[7].contains("@alice"), "{text}");
-        assert!(lines[8].contains("@bob"), "{text}");
-        assert_eq!(lines[9], "");
-        assert_eq!(lines[10], "---");
-        assert_eq!(lines[11], "");
-        assert_eq!(lines[12], report::render_today(0));
+        assert_eq!(lines[3], "@slickroot · connected");
+        assert_eq!(lines[4], "Yesterday · 1 replies");
+        assert!(lines[5].contains("@bob"), "{text}");
+        assert_eq!(lines[6], "");
+        assert_eq!(lines[7], "---");
+        assert_eq!(lines[8], "");
+        assert_eq!(lines[9], "Accounts");
+        assert!(lines[10].contains("@alice"), "{text}");
+        assert!(lines[11].contains("@bob"), "{text}");
+        assert_eq!(lines[12], "");
+        assert_eq!(lines[13], "---");
+        assert_eq!(lines[14], "");
+        assert_eq!(lines[15], report::render_today(0));
     }
 
     #[test]
@@ -672,18 +714,18 @@ mod tests {
 
         let text = String::from_utf8(output).unwrap();
         let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines[0], "@slickroot · connected");
-        assert_eq!(lines[1], "Yesterday · 0 replies");
-        assert_eq!(lines[2], "No replies yesterday.");
-        assert_eq!(lines[3], "");
-        assert_eq!(lines[4], "---");
-        assert_eq!(lines[5], "");
-        assert_eq!(lines[6], "Accounts");
-        assert_eq!(lines[7], "No data yet.");
+        assert_eq!(lines[3], "@slickroot · connected");
+        assert_eq!(lines[4], "Yesterday · 0 replies");
+        assert_eq!(lines[5], "No replies yesterday.");
+        assert_eq!(lines[6], "");
+        assert_eq!(lines[7], "---");
         assert_eq!(lines[8], "");
-        assert_eq!(lines[9], "---");
-        assert_eq!(lines[10], "");
-        assert_eq!(lines[11], report::render_today(0));
+        assert_eq!(lines[9], "Accounts");
+        assert_eq!(lines[10], "No data yet.");
+        assert_eq!(lines[11], "");
+        assert_eq!(lines[12], "---");
+        assert_eq!(lines[13], "");
+        assert_eq!(lines[14], report::render_today(0));
     }
 
     fn seeded_history(name: &str) -> history::History {
