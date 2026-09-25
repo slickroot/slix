@@ -67,17 +67,25 @@ fn write_report(
     Ok(())
 }
 
-fn run(
+#[derive(Debug)]
+struct Reconnected(config::Config);
+
+impl std::fmt::Display for Reconnected {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "reconnected without verifying the new tokens")
+    }
+}
+
+impl std::error::Error for Reconnected {}
+
+fn connect(
     config: config::Config,
     api_base: &str,
     oauth_base: &str,
     path: &std::path::Path,
-    history: &history::History,
-    today_goal: &today::TodayGoal,
     input: impl std::io::BufRead,
     mut output: impl std::io::Write,
-    now: chrono::DateTime<chrono::Local>,
-) -> Result<config::Config, Box<dyn std::error::Error>> {
+) -> Result<(config::Config, api::XApiClient, api::Me), Box<dyn std::error::Error>> {
     let api_base = api_base.trim_end_matches('/');
     let oauth_base = oauth_base.trim_end_matches('/');
     let mut config = config;
@@ -92,10 +100,7 @@ fn run(
             reqwest::blocking::Client::new(),
         );
         match api.users_me() {
-            Ok(me) => {
-                write_report(&api, &me, history, today_goal, now, &mut output)?;
-                return Ok(config);
-            }
+            Ok(me) => return Ok((config, api, me)),
             Err(_) => {
                 writeln!(output, "reconnecting…")?;
                 true
@@ -125,20 +130,43 @@ fn run(
     config.access_token_secret = Some(access_token_secret);
     config.save_to(path)?;
 
-    if !reconnecting {
-        let api = api::XApiClient::for_endpoint(
-            api_base,
-            &config.consumer_key,
-            &config.consumer_secret,
-            config.access_token.as_deref().unwrap(),
-            config.access_token_secret.as_deref().unwrap(),
-            reqwest::blocking::Client::new(),
-        );
-        let me = api.users_me()?;
-        write_report(&api, &me, history, today_goal, now, &mut output)?;
+    if reconnecting {
+        return Err(Box::new(Reconnected(config)));
     }
 
-    Ok(config)
+    let api = api::XApiClient::for_endpoint(
+        api_base,
+        &config.consumer_key,
+        &config.consumer_secret,
+        config.access_token.as_deref().unwrap(),
+        config.access_token_secret.as_deref().unwrap(),
+        reqwest::blocking::Client::new(),
+    );
+    let me = api.users_me()?;
+    Ok((config, api, me))
+}
+
+fn run(
+    config: config::Config,
+    api_base: &str,
+    oauth_base: &str,
+    path: &std::path::Path,
+    history: &history::History,
+    today_goal: &today::TodayGoal,
+    input: impl std::io::BufRead,
+    mut output: impl std::io::Write,
+    now: chrono::DateTime<chrono::Local>,
+) -> Result<config::Config, Box<dyn std::error::Error>> {
+    match connect(config, api_base, oauth_base, path, input, &mut output) {
+        Ok((config, api, me)) => {
+            write_report(&api, &me, history, today_goal, now, &mut output)?;
+            Ok(config)
+        }
+        Err(err) => match err.downcast::<Reconnected>() {
+            Ok(reconnected) => Ok(reconnected.0),
+            Err(err) => Err(err),
+        },
+    }
 }
 
 #[cfg(test)]
@@ -824,5 +852,60 @@ mod tests {
 
         assert!(result.is_err());
         assert!(today_goal.load(now()).unwrap().is_none());
+    }
+
+    #[test]
+    fn connect_first_run_runs_pin_flow_and_returns_working_client() {
+        let server = MockServer::start();
+        mock_request_token(&server);
+        mock_access_token(&server, 200);
+        let username = "slickroot";
+        mock_users_me(&server, 200, username);
+
+        let path = test_dir("connect-first-run").join("config.json");
+        let mut output = Vec::new();
+
+        let (config, api, me) = connect(
+            unused_config(),
+            &api_base(&server),
+            &oauth_base(&server),
+            &path,
+            std::io::Cursor::new("123456\n"),
+            &mut output,
+        )
+        .unwrap();
+
+        assert!(config.is_connected());
+        assert_eq!(me.handle, format!("@{username}"));
+        assert!(api.users_me().is_ok());
+    }
+
+    #[test]
+    fn connect_already_connected_skips_oauth_and_returns_working_client() {
+        let server = MockServer::start();
+        let request_token = mock_request_token(&server);
+        let access_token = mock_access_token(&server, 200);
+        let username = "slickroot";
+        mock_users_me(&server, 200, username);
+
+        let path = test_dir("connect-already-connected").join("config.json");
+        let mut output = Vec::new();
+
+        let (config, api, me) = connect(
+            connected_config(),
+            &api_base(&server),
+            &oauth_base(&server),
+            &path,
+            std::io::Cursor::new(""),
+            &mut output,
+        )
+        .unwrap();
+
+        assert_eq!(request_token.calls(), 0);
+        assert_eq!(access_token.calls(), 0);
+        assert!(config.is_connected());
+        assert_eq!(me.handle, format!("@{username}"));
+        assert!(api.users_me().is_ok());
+        assert!(output.is_empty());
     }
 }
