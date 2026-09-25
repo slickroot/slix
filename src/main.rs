@@ -52,10 +52,27 @@ fn write_report(
 ) -> Result<(), Box<dyn std::error::Error>> {
     writeln!(output, "{} · connected", me.handle)?;
     let date = now.date_naive().pred_opt().unwrap();
+    let latest = api.latest_replies(&me.id)?;
+    let today_count = match today_goal.load(now)? {
+        Some(count) => count,
+        None => {
+            let today = window::Window::today(now);
+            let count = latest
+                .iter()
+                .filter(|reply| today.contains(&reply.created_at))
+                .count() as u64;
+            today_goal.save(count, now)?;
+            count
+        }
+    };
     let replies = match history.load(date)? {
         Some(replies) => replies,
         None => {
-            let replies = api.replies(&me.id, &window::Window::yesterday(now))?;
+            let yesterday = window::Window::yesterday(now);
+            let replies: Vec<api::Reply> = latest
+                .into_iter()
+                .filter(|reply| yesterday.contains(&reply.created_at))
+                .collect();
             history.save(date, &replies)?;
             replies
         }
@@ -72,14 +89,6 @@ fn write_report(
     writeln!(output, "---")?;
     writeln!(output)?;
 
-    let today_count = match today_goal.load(now)? {
-        Some(count) => count,
-        None => {
-            let count = api.replies(&me.id, &window::Window::today(now))?.len() as u64;
-            today_goal.save(count, now)?;
-            count
-        }
-    };
     writeln!(output, "{}", report::render_today(today_count))?;
     Ok(())
 }
@@ -517,6 +526,50 @@ mod tests {
         assert_eq!(lines[11], report::render_today(1));
         assert_eq!(lines.len(), 12, "{text}");
         assert!(text.ends_with('\n'));
+    }
+
+    #[test]
+    fn one_fetch_fills_yesterday_and_today() {
+        let server = MockServer::start();
+        mock_users_me(&server, 200, "slickroot");
+        let now = now();
+        let reply = |id: &str, created_at: chrono::DateTime<chrono::Local>| {
+            format!(
+                r#"{{"id":"{id}","created_at":"{}","text":"hello there","public_metrics":{{"impression_count":12,"like_count":3}},"non_public_metrics":{{"user_profile_clicks":4}},"referenced_tweets":[{{"type":"replied_to","id":"1"}}],"in_reply_to_user_id":"9"}}"#,
+                created_at
+                    .with_timezone(&chrono::Utc)
+                    .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            )
+        };
+        let body = format!(
+            r#"{{"data":[{},{}],"includes":{{"users":[{{"id":"9","username":"bob"}}]}}}}"#,
+            reply("7", now - chrono::Duration::days(1)),
+            reply("8", now),
+        );
+        let tweets = mock_tweets(&server, 200, &body);
+        let mut output = Vec::new();
+
+        connect_and_write_report(
+            connected_config(),
+            &api_base(&server),
+            &oauth_base(&server),
+            &test_dir("one-fetch").join("config.json"),
+            &test_history("one-fetch"),
+            &test_today_goal("one-fetch"),
+            std::io::Cursor::new(""),
+            &mut output,
+            now,
+        )
+        .unwrap();
+
+        let text = String::from_utf8(output).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(tweets.calls(), 1);
+        assert_eq!(lines[1], "Yesterday · 1 replies");
+        assert_eq!(
+            lines.last().copied(),
+            Some(report::render_today(1).as_str())
+        );
     }
 
     #[test]

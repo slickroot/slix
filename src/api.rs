@@ -2,14 +2,12 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
 
-use chrono::{DateTime, SecondsFormat, Utc};
+use chrono::{DateTime, Utc};
 
 use oauth1::Token;
 use reqwest::blocking::Client;
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
-
-use crate::window::Window;
 
 pub struct XApiClient {
     base: String,
@@ -174,17 +172,9 @@ impl XApiClient {
         })
     }
 
-    pub fn replies(&self, user_id: &str, window: &Window) -> Result<Vec<Reply>, ApiError> {
+    pub fn latest_replies(&self, user_id: &str) -> Result<Vec<Reply>, ApiError> {
         let url = format!("{}/users/{user_id}/tweets", self.base);
         let query = [
-            (
-                "start_time",
-                window.start.to_rfc3339_opts(SecondsFormat::Secs, true),
-            ),
-            (
-                "end_time",
-                window.end.to_rfc3339_opts(SecondsFormat::Secs, true),
-            ),
             ("max_results", "100".to_string()),
             ("exclude", "retweets".to_string()),
             (
@@ -391,16 +381,15 @@ mod tests {
     }
 
     #[test]
-    fn replies_sends_signed_get_with_window_and_field_params() {
-        use chrono::TimeZone;
+    fn latest_replies_sends_signed_get_without_time_window() {
         let server = MockServer::start();
         let seen_auth = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
         let seen_auth_for_mock = std::sync::Arc::clone(&seen_auth);
         let mock = server.mock(|when, then| {
             when.method(httpmock::Method::GET)
                 .path("/2/users/42/tweets")
-                .query_param("start_time", "2026-09-20T00:00:00Z")
-                .query_param("end_time", "2026-09-21T00:00:00Z")
+                .query_param_missing("start_time")
+                .query_param_missing("end_time")
                 .query_param("max_results", "100")
                 .query_param("exclude", "retweets")
                 .query_param(
@@ -422,12 +411,8 @@ mod tests {
                     .build()
             });
         });
-        let window = Window {
-            start: Utc.with_ymd_and_hms(2026, 9, 20, 0, 0, 0).unwrap(),
-            end: Utc.with_ymd_and_hms(2026, 9, 21, 0, 0, 0).unwrap(),
-        };
 
-        let replies = api_client(&server).replies("42", &window).unwrap();
+        let replies = api_client(&server).latest_replies("42").unwrap();
 
         mock.assert();
         assert_eq!(replies.len(), 1);
@@ -441,26 +426,18 @@ mod tests {
         assert!(auth.contains("oauth_signature=\""), "{auth}");
     }
 
-    fn yesterday() -> Window {
-        use chrono::TimeZone;
-        Window {
-            start: Utc.with_ymd_and_hms(2026, 9, 20, 0, 0, 0).unwrap(),
-            end: Utc.with_ymd_and_hms(2026, 9, 21, 0, 0, 0).unwrap(),
-        }
-    }
-
-    fn replies_with_body(status: u16, body: &str) -> Result<Vec<Reply>, ApiError> {
+    fn latest_replies_with_body(status: u16, body: &str) -> Result<Vec<Reply>, ApiError> {
         let server = MockServer::start();
         server.mock(|when, then| {
             when.method(httpmock::Method::GET)
                 .path("/2/users/42/tweets");
             then.status(status).body(body);
         });
-        api_client(&server).replies("42", &yesterday())
+        api_client(&server).latest_replies("42")
     }
 
     #[test]
-    fn replies_keeps_only_replied_to_tweets_and_resolves_username() {
+    fn latest_replies_keeps_only_replied_to_tweets_and_resolves_username() {
         let body = r#"{"data":[
             {"id":"1","created_at":"2026-09-20T10:00:00.000Z","text":"a","public_metrics":{"impression_count":5,"like_count":1},"non_public_metrics":{"user_profile_clicks":4},"referenced_tweets":[{"type":"replied_to","id":"100"}],"in_reply_to_user_id":"9"},
             {"id":"2","created_at":"2026-09-20T11:00:00.000Z","text":"plain","public_metrics":{"impression_count":6,"like_count":2},"non_public_metrics":{"user_profile_clicks":4}},
@@ -468,7 +445,7 @@ mod tests {
             {"id":"4","created_at":"2026-09-20T13:00:00.000Z","text":"b","public_metrics":{"impression_count":8,"like_count":4},"non_public_metrics":{"user_profile_clicks":4},"referenced_tweets":[{"type":"quoted","id":"101"},{"type":"replied_to","id":"102"}],"in_reply_to_user_id":"10"}
         ],"includes":{"users":[{"id":"9","username":"bob"},{"id":"10","username":"carol"}]}}"#;
 
-        let replies = replies_with_body(200, body).unwrap();
+        let replies = latest_replies_with_body(200, body).unwrap();
 
         assert_eq!(replies.len(), 2);
         assert_eq!(replies[0].id, "1");
@@ -479,72 +456,72 @@ mod tests {
     }
 
     #[test]
-    fn replies_returns_empty_when_response_has_no_data() {
-        let replies = replies_with_body(200, r#"{"meta":{"result_count":0}}"#).unwrap();
+    fn latest_replies_returns_empty_when_response_has_no_data() {
+        let replies = latest_replies_with_body(200, r#"{"meta":{"result_count":0}}"#).unwrap();
 
         assert!(replies.is_empty());
     }
 
     #[test]
-    fn replies_maps_401_to_needs_reconnect() {
-        let err = replies_with_body(401, "unauthorized").unwrap_err();
+    fn latest_replies_maps_401_to_needs_reconnect() {
+        let err = latest_replies_with_body(401, "unauthorized").unwrap_err();
 
         assert!(matches!(err, ApiError::NeedsReconnect), "{err:?}");
     }
 
     #[test]
-    fn replies_maps_403_to_needs_reconnect() {
-        let err = replies_with_body(403, "forbidden").unwrap_err();
+    fn latest_replies_maps_403_to_needs_reconnect() {
+        let err = latest_replies_with_body(403, "forbidden").unwrap_err();
 
         assert!(matches!(err, ApiError::NeedsReconnect), "{err:?}");
     }
 
     #[test]
-    fn replies_maps_500_to_http_error() {
-        let err = replies_with_body(500, "boom").unwrap_err();
+    fn latest_replies_maps_500_to_http_error() {
+        let err = latest_replies_with_body(500, "boom").unwrap_err();
 
         assert!(matches!(err, ApiError::Http(_)), "{err:?}");
     }
 
     #[test]
-    fn replies_maps_malformed_body_to_protocol_error() {
-        let err = replies_with_body(200, "not json").unwrap_err();
+    fn latest_replies_maps_malformed_body_to_protocol_error() {
+        let err = latest_replies_with_body(200, "not json").unwrap_err();
 
         assert!(matches!(err, ApiError::Protocol(_)), "{err:?}");
     }
 
     #[test]
-    fn replies_maps_reply_missing_impressions_to_protocol_error() {
+    fn latest_replies_maps_reply_missing_impressions_to_protocol_error() {
         let body = r#"{"data":[{"id":"1","created_at":"2026-09-20T10:00:00.000Z","text":"a","public_metrics":{"like_count":0},"non_public_metrics":{"user_profile_clicks":4},"referenced_tweets":[{"type":"replied_to","id":"100"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#;
 
-        let err = replies_with_body(200, body).unwrap_err();
+        let err = latest_replies_with_body(200, body).unwrap_err();
 
         assert!(matches!(err, ApiError::Protocol(_)), "{err:?}");
     }
 
     #[test]
-    fn replies_maps_reply_missing_likes_to_protocol_error() {
+    fn latest_replies_maps_reply_missing_likes_to_protocol_error() {
         let body = r#"{"data":[{"id":"1","created_at":"2026-09-20T10:00:00.000Z","text":"a","public_metrics":{"impression_count":5},"non_public_metrics":{"user_profile_clicks":4},"referenced_tweets":[{"type":"replied_to","id":"100"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#;
 
-        let err = replies_with_body(200, body).unwrap_err();
+        let err = latest_replies_with_body(200, body).unwrap_err();
 
         assert!(matches!(err, ApiError::Protocol(_)), "{err:?}");
     }
 
     #[test]
-    fn replies_maps_reply_missing_profile_clicks_to_protocol_error() {
+    fn latest_replies_maps_reply_missing_profile_clicks_to_protocol_error() {
         let body = r#"{"data":[{"id":"1","created_at":"2026-09-20T10:00:00.000Z","text":"a","public_metrics":{"impression_count":5,"like_count":0},"non_public_metrics":{},"referenced_tweets":[{"type":"replied_to","id":"100"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#;
 
-        let err = replies_with_body(200, body).unwrap_err();
+        let err = latest_replies_with_body(200, body).unwrap_err();
 
         assert!(matches!(err, ApiError::Protocol(_)), "{err:?}");
     }
 
     #[test]
-    fn replies_maps_reply_missing_non_public_metrics_to_protocol_error() {
+    fn latest_replies_maps_reply_missing_non_public_metrics_to_protocol_error() {
         let body = r#"{"data":[{"id":"1","created_at":"2026-09-20T10:00:00.000Z","text":"a","public_metrics":{"impression_count":5,"like_count":0},"referenced_tweets":[{"type":"replied_to","id":"100"}],"in_reply_to_user_id":"9"}],"includes":{"users":[{"id":"9","username":"bob"}]}}"#;
 
-        let err = replies_with_body(200, body).unwrap_err();
+        let err = latest_replies_with_body(200, body).unwrap_err();
 
         assert!(matches!(err, ApiError::Protocol(_)), "{err:?}");
     }
