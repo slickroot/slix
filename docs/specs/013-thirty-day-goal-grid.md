@@ -13,3 +13,7 @@ Maro opens slix. At the very top of the report, a single row of 30 symbols shows
 - Today counts too, based on the replies saved so far
 
 ## Technical Design
+
+- `History` gains `pub fn last_30_day_counts(&self, today: NaiveDate) -> Result<Vec<u64>, HistoryError>`. It loops the 30 dates ending on `today` (oldest first) and, for each, computes `self.load(date)?.unwrap_or_default().len()`. `History` has no clock of its own, so `today` is passed in by the caller, matching how `load`/`save` are already given dates from outside.
+- `report.rs` gains `pub fn render_grid(counts: &[u64]) -> String`, next to `render_today`. It maps each count to `■` (count >= `DAILY_GOAL`) or `□` (otherwise), reusing the existing `DAILY_GOAL` constant, and joins them into a single line with no separators.
+- `write_report` (in `main.rs`) calls `history.last_30_day_counts(now.date_naive())?` and writes `report::render_grid(&counts)` as the first line of the report, followed by a blank line and a `---` divider before the existing handle line.
