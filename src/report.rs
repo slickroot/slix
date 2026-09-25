@@ -19,10 +19,11 @@ pub fn render_today(count: u64) -> String {
 }
 
 pub fn render_grid(counts: &[u64]) -> String {
-    let squares: String = counts
+    let squares = counts
         .iter()
-        .map(|&count| if count >= DAILY_GOAL { '■' } else { '□' })
-        .collect();
+        .map(|&count| if count >= DAILY_GOAL { "■" } else { "·" })
+        .collect::<Vec<_>>()
+        .join(" ");
     format!("{GRID_TITLE}\n{squares}")
 }
 
@@ -418,18 +419,18 @@ mod tests {
     }
 
     #[test]
-    fn shows_hollow_square_for_days_below_the_goal() {
-        assert_eq!(grid_squares(&[DAILY_GOAL - 1]), "□");
+    fn shows_dot_for_days_below_the_goal() {
+        assert_eq!(grid_squares(&[DAILY_GOAL - 1]), "·");
     }
 
     #[test]
-    fn shows_hollow_square_for_a_day_with_no_replies() {
-        assert_eq!(grid_squares(&[0]), "□");
+    fn shows_dot_for_a_day_with_no_replies() {
+        assert_eq!(grid_squares(&[0]), "·");
     }
 
     #[test]
-    fn joins_multiple_days_with_no_separators() {
-        assert_eq!(grid_squares(&[0, DAILY_GOAL, DAILY_GOAL + 1]), "□■■");
+    fn joins_multiple_days_with_a_single_space() {
+        assert_eq!(grid_squares(&[0, DAILY_GOAL, DAILY_GOAL + 1]), "· ■ ■");
     }
 
     fn account(handle: &str, avg_impressions: f64, reply_count: usize) -> accounts::AccountRank {
