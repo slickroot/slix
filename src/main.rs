@@ -9,19 +9,36 @@ mod window;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = config::Config::load()?;
+    let api_base = "https://api.x.com/2/";
+    let oauth_base = "https://api.x.com/oauth";
+    let path = config::Config::path();
     let history = history::History::new(config.data_dir.join("history"));
     let today_goal = today::TodayGoal::new(config.data_dir.join("today.json"));
-    let _ = run(
+    let mut output = std::io::stdout();
+
+    match connect(
         config,
-        "https://api.x.com/2/",
-        "https://api.x.com/oauth",
-        &config::Config::path(),
-        &history,
-        &today_goal,
+        api_base,
+        oauth_base,
+        &path,
         std::io::stdin().lock(),
-        std::io::stdout(),
-        chrono::Local::now(),
-    )?;
+        &mut output,
+    ) {
+        Ok((_config, api, me)) => {
+            write_report(
+                &api,
+                &me,
+                &history,
+                &today_goal,
+                chrono::Local::now(),
+                &mut output,
+            )?;
+        }
+        Err(err) => match err.downcast::<Reconnected>() {
+            Ok(_) => {}
+            Err(err) => return Err(err),
+        },
+    }
     Ok(())
 }
 
@@ -68,7 +85,7 @@ fn write_report(
 }
 
 #[derive(Debug)]
-struct Reconnected(config::Config);
+struct Reconnected(#[allow(dead_code)] config::Config);
 
 impl std::fmt::Display for Reconnected {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -146,33 +163,33 @@ fn connect(
     Ok((config, api, me))
 }
 
-fn run(
-    config: config::Config,
-    api_base: &str,
-    oauth_base: &str,
-    path: &std::path::Path,
-    history: &history::History,
-    today_goal: &today::TodayGoal,
-    input: impl std::io::BufRead,
-    mut output: impl std::io::Write,
-    now: chrono::DateTime<chrono::Local>,
-) -> Result<config::Config, Box<dyn std::error::Error>> {
-    match connect(config, api_base, oauth_base, path, input, &mut output) {
-        Ok((config, api, me)) => {
-            write_report(&api, &me, history, today_goal, now, &mut output)?;
-            Ok(config)
-        }
-        Err(err) => match err.downcast::<Reconnected>() {
-            Ok(reconnected) => Ok(reconnected.0),
-            Err(err) => Err(err),
-        },
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use httpmock::MockServer;
+
+    fn connect_and_write_report(
+        config: config::Config,
+        api_base: &str,
+        oauth_base: &str,
+        path: &std::path::Path,
+        history: &history::History,
+        today_goal: &today::TodayGoal,
+        input: impl std::io::BufRead,
+        mut output: impl std::io::Write,
+        now: chrono::DateTime<chrono::Local>,
+    ) -> Result<config::Config, Box<dyn std::error::Error>> {
+        match connect(config, api_base, oauth_base, path, input, &mut output) {
+            Ok((config, api, me)) => {
+                write_report(&api, &me, history, today_goal, now, &mut output)?;
+                Ok(config)
+            }
+            Err(err) => match err.downcast::<Reconnected>() {
+                Ok(reconnected) => Ok(reconnected.0),
+                Err(err) => Err(err),
+            },
+        }
+    }
 
     fn test_dir(name: &str) -> std::path::PathBuf {
         let dir =
@@ -277,7 +294,7 @@ mod tests {
         let path = test_dir("first-run").join("config.json");
         let mut output = Vec::new();
 
-        let config = run(
+        let config = connect_and_write_report(
             unused_config(),
             &api_base(&server),
             &oauth_base(&server),
@@ -320,7 +337,7 @@ mod tests {
         let path = test_dir("verify-on-startup").join("config.json");
         let mut output = Vec::new();
 
-        let config = run(
+        let config = connect_and_write_report(
             connected_config(),
             &api_base(&server),
             &oauth_base(&server),
@@ -355,7 +372,7 @@ mod tests {
         let path = test_dir("reconnect").join("config.json");
         let mut output = Vec::new();
 
-        let config = run(
+        let config = connect_and_write_report(
             connected_config(),
             &api_base(&server),
             &oauth_base(&server),
@@ -394,7 +411,7 @@ mod tests {
         let path = test_dir("re-open").join("config.json");
 
         let mut first_output = Vec::new();
-        run(
+        connect_and_write_report(
             unused_config(),
             &api_base(&server),
             &oauth_base(&server),
@@ -409,7 +426,7 @@ mod tests {
 
         let reopened = config::Config::load_from(&path).unwrap();
         let mut second_output = Vec::new();
-        run(
+        connect_and_write_report(
             reopened,
             &api_base(&server),
             &oauth_base(&server),
@@ -442,7 +459,7 @@ mod tests {
         let path = test_dir("exchange-failure").join("config.json");
         let mut output = Vec::new();
 
-        let result = run(
+        let result = connect_and_write_report(
             unused_config(),
             &api_base(&server),
             &oauth_base(&server),
@@ -470,7 +487,7 @@ mod tests {
         );
         let mut output = Vec::new();
 
-        run(
+        connect_and_write_report(
             connected_config(),
             &api_base(&server),
             &oauth_base(&server),
@@ -514,7 +531,7 @@ mod tests {
         let history = test_history("save-on-fetch");
         let today_goal = test_today_goal("save-on-fetch");
 
-        run(
+        connect_and_write_report(
             connected_config(),
             &api_base(&server),
             &oauth_base(&server),
@@ -547,7 +564,7 @@ mod tests {
         let today_goal = test_today_goal("cached");
         let path = test_dir("cached").join("config.json");
 
-        run(
+        connect_and_write_report(
             connected_config(),
             &api_base(&server),
             &oauth_base(&server),
@@ -561,7 +578,7 @@ mod tests {
         .unwrap();
 
         let mut second_output = Vec::new();
-        run(
+        connect_and_write_report(
             connected_config(),
             &api_base(&server),
             &oauth_base(&server),
@@ -589,7 +606,7 @@ mod tests {
         mock_users_me(&failing_server, 200, "slickroot");
         mock_tweets(&failing_server, 500, "boom");
 
-        let result = run(
+        let result = connect_and_write_report(
             connected_config(),
             &api_base(&failing_server),
             &oauth_base(&failing_server),
@@ -608,7 +625,7 @@ mod tests {
         mock_users_me(&succeeding_server, 200, "slickroot");
         let tweets = mock_tweets(&succeeding_server, 200, NO_TWEETS);
 
-        run(
+        connect_and_write_report(
             connected_config(),
             &api_base(&succeeding_server),
             &oauth_base(&succeeding_server),
@@ -631,7 +648,7 @@ mod tests {
         mock_tweets(&server, 200, NO_TWEETS);
         let mut output = Vec::new();
 
-        run(
+        connect_and_write_report(
             connected_config(),
             &api_base(&server),
             &oauth_base(&server),
@@ -679,7 +696,7 @@ mod tests {
             .unwrap();
         let mut output = Vec::new();
 
-        run(
+        connect_and_write_report(
             connected_config(),
             &api_base(&server),
             &oauth_base(&server),
@@ -716,7 +733,7 @@ mod tests {
         mock_tweets(&server, 200, NO_TWEETS);
         let mut output = Vec::new();
 
-        run(
+        connect_and_write_report(
             connected_config(),
             &api_base(&server),
             &oauth_base(&server),
@@ -751,7 +768,7 @@ mod tests {
         mock_users_me(&server, 200, "slickroot");
         mock_tweets(&server, 500, "boom");
 
-        let result = run(
+        let result = connect_and_write_report(
             connected_config(),
             &api_base(&server),
             &oauth_base(&server),
@@ -785,7 +802,7 @@ mod tests {
         let today_goal = test_today_goal("today-fetch-goal");
         let mut output = Vec::new();
 
-        run(
+        connect_and_write_report(
             connected_config(),
             &api_base(&server),
             &oauth_base(&server),
@@ -813,7 +830,7 @@ mod tests {
         today_goal.save(3, now()).unwrap();
         let mut output = Vec::new();
 
-        run(
+        connect_and_write_report(
             connected_config(),
             &api_base(&server),
             &oauth_base(&server),
@@ -838,7 +855,7 @@ mod tests {
         mock_tweets(&server, 500, "boom");
         let today_goal = test_today_goal("today-failure-goal");
 
-        let result = run(
+        let result = connect_and_write_report(
             connected_config(),
             &api_base(&server),
             &oauth_base(&server),
