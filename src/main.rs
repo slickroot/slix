@@ -2,6 +2,7 @@ mod accounts;
 mod api;
 mod config;
 mod history;
+mod model;
 mod oauth;
 mod report;
 mod today;
@@ -42,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn write_report(
-    me: &api::Me,
+    me: &model::Me,
     history: &history::History,
     today_goal: &today::TodayGoal,
     now: chrono::DateTime<chrono::Local>,
@@ -74,9 +75,9 @@ fn write_report(
 
 fn save_replies(
     history: &history::History,
-    replies: Vec<api::Reply>,
+    replies: Vec<model::Reply>,
 ) -> Result<(), history::HistoryError> {
-    let mut by_day: std::collections::BTreeMap<chrono::NaiveDate, Vec<api::Reply>> =
+    let mut by_day: std::collections::BTreeMap<chrono::NaiveDate, Vec<model::Reply>> =
         std::collections::BTreeMap::new();
     for reply in replies {
         let date = reply.created_at.with_timezone(&chrono::Local).date_naive();
@@ -106,7 +107,7 @@ fn connect(
     path: &std::path::Path,
     input: impl std::io::BufRead,
     mut output: impl std::io::Write,
-) -> Result<(config::Config, api::XApiClient, api::Me), Box<dyn std::error::Error>> {
+) -> Result<(config::Config, api::XApiClient, model::Me), Box<dyn std::error::Error>> {
     let api_base = api_base.trim_end_matches('/');
     let oauth_base = oauth_base.trim_end_matches('/');
     let mut config = config;
@@ -513,7 +514,7 @@ mod tests {
         history
             .save(
                 date,
-                &[api::Reply {
+                &[model::Reply {
                     id: "7".into(),
                     created_at: chrono::Utc::now(),
                     text: "hello there".into(),
@@ -637,7 +638,7 @@ mod tests {
         history
             .save(
                 yesterday_date,
-                &[api::Reply {
+                &[model::Reply {
                     id: "7".into(),
                     created_at: chrono::Utc::now(),
                     text: "hello there".into(),
@@ -651,7 +652,7 @@ mod tests {
         history
             .save(
                 earlier_date,
-                &[api::Reply {
+                &[model::Reply {
                     id: "1".into(),
                     created_at: chrono::Utc::now(),
                     text: "hi".into(),
@@ -823,8 +824,8 @@ mod tests {
         assert!(output.is_empty());
     }
 
-    fn reply_from(id: &str, created_at: chrono::DateTime<chrono::Utc>) -> api::Reply {
-        api::Reply {
+    fn reply_from(id: &str, created_at: chrono::DateTime<chrono::Utc>) -> model::Reply {
+        model::Reply {
             id: id.into(),
             created_at,
             text: "hi".into(),

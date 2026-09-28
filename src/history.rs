@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use chrono::NaiveDate;
 
-use crate::api::Reply;
+use crate::model::Reply;
 
 pub struct History {
     dir: PathBuf,

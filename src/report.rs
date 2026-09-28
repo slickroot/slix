@@ -1,5 +1,5 @@
 use crate::accounts;
-use crate::api::Reply;
+use crate::model::Reply;
 use chrono::TimeZone;
 
 const PREVIEW_LIMIT: usize = 50;

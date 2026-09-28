@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::api::Reply;
+use crate::model::Reply;
 
 pub struct AccountRank {
     pub handle: String,
