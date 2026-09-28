@@ -8,6 +8,18 @@ pub struct History {
     dir: PathBuf,
 }
 
+#[allow(dead_code)]
+fn merge(saved: Vec<Reply>, fresh: &[Reply]) -> Vec<Reply> {
+    let mut merged = saved;
+    for reply in fresh {
+        match merged.iter_mut().find(|existing| existing.id == reply.id) {
+            Some(existing) => *existing = reply.clone(),
+            None => merged.push(reply.clone()),
+        }
+    }
+    merged
+}
+
 impl History {
     pub fn new(dir: PathBuf) -> History {
         History { dir }
@@ -292,6 +304,25 @@ mod tests {
         let counts = history.last_30_day_counts(today).unwrap();
 
         assert_eq!(counts[19], replies.len() as u64);
+    }
+
+    #[test]
+    fn merge_keeps_saved_order_replaces_by_id_and_appends_new_ids() {
+        let mut replaced = sample_reply("replaced");
+        replaced.impressions = 100;
+        let mut kept = sample_reply("kept");
+        kept.likes = 42;
+        let fresh_replaced = sample_reply("replaced");
+        let added = sample_reply("added");
+
+        let saved = vec![replaced, kept.clone()];
+        let fresh = vec![fresh_replaced.clone(), added.clone()];
+
+        let merged = merge(saved, &fresh);
+
+        assert_eq!(merged, vec![fresh_replaced, kept, added]);
+        let ids: Vec<_> = merged.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, vec!["replaced", "kept", "added"]);
     }
 
     #[test]
