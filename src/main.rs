@@ -5,8 +5,6 @@ mod history;
 mod model;
 mod oauth;
 mod report;
-#[allow(dead_code)]
-mod window;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = config::Config::load()?;
