@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use chrono::NaiveDate;
 
-use crate::api::Reply;
+use crate::model::Reply;
 
 pub struct History {
     dir: PathBuf,
@@ -22,13 +22,6 @@ fn merge(saved: Vec<Reply>, fresh: &[Reply]) -> Vec<Reply> {
 impl History {
     pub fn new(dir: PathBuf) -> History {
         History { dir }
-    }
-
-    pub fn default_dir() -> PathBuf {
-        dirs::config_dir()
-            .expect("no config dir available")
-            .join("slix")
-            .join("history")
     }
 
     fn path_for(&self, date: NaiveDate) -> PathBuf {
@@ -99,12 +92,6 @@ impl History {
         let json = serde_json::to_vec_pretty(&merged).map_err(HistoryError::Json)?;
         std::fs::write(&temp_path, json).map_err(HistoryError::Io)?;
         std::fs::rename(&temp_path, &path).map_err(HistoryError::Io)
-    }
-}
-
-impl Default for History {
-    fn default() -> History {
-        History::new(History::default_dir())
     }
 }
 
@@ -188,18 +175,6 @@ mod tests {
         let loaded = history.load(date).unwrap();
 
         assert!(matches!(loaded, Some(replies) if replies.is_empty()));
-    }
-
-    #[test]
-    fn default_dir_is_config_dir_joined_with_slix_history() {
-        let expected = dirs::config_dir().unwrap().join("slix").join("history");
-        assert_eq!(History::default_dir(), expected);
-    }
-
-    #[test]
-    fn default_uses_default_dir() {
-        let history = History::default();
-        assert_eq!(history.dir, History::default_dir());
     }
 
     #[test]
@@ -324,6 +299,43 @@ mod tests {
         assert_eq!(merged, vec![fresh_replaced, kept, added]);
         let ids: Vec<_> = merged.iter().map(|r| r.id.as_str()).collect();
         assert_eq!(ids, vec!["replaced", "kept", "added"]);
+    }
+
+    #[test]
+    fn save_writes_the_pinned_history_format() {
+        let dir = test_dir("pinned-format");
+        let history = History::new(dir.clone());
+        let date = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap();
+
+        history.save(date, &[sample_reply("1")]).unwrap();
+
+        let contents = std::fs::read_to_string(dir.join(format!("{date}.json"))).unwrap();
+        let actual: serde_json::Value = serde_json::from_str(&contents).unwrap();
+        let expected = serde_json::json!([
+            {
+                "id": "1",
+                "created_at": "2026-09-20T10:00:00Z",
+                "text": "hi",
+                "to_username": "bob",
+                "impressions": 1,
+                "likes": 2,
+                "profile_visits": 3
+            }
+        ]);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn a_file_written_before_the_split_still_loads() {
+        let dir = test_dir("pre-split");
+        let history = History::new(dir.clone());
+        let date = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap();
+        let contents = r#"[{"id":"1","created_at":"2026-09-20T10:00:00Z","text":"hi","to_username":"bob","impressions":1,"likes":2,"profile_visits":3}]"#;
+        std::fs::write(dir.join(format!("{date}.json")), contents).unwrap();
+
+        let loaded = history.load(date).unwrap();
+
+        assert_eq!(loaded, Some(vec![sample_reply("1")]));
     }
 
     #[test]

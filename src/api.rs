@@ -7,7 +7,9 @@ use chrono::{DateTime, Utc};
 use oauth1::Token;
 use reqwest::blocking::Client;
 use reqwest::header::AUTHORIZATION;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+
+use crate::model::{Me, Reply};
 
 pub struct XApiClient {
     base: String,
@@ -43,23 +45,6 @@ impl std::error::Error for ApiError {
             _ => None,
         }
     }
-}
-
-#[derive(Debug)]
-pub struct Me {
-    pub id: String,
-    pub handle: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Reply {
-    pub id: String,
-    pub created_at: DateTime<Utc>,
-    pub text: String,
-    pub to_username: String,
-    pub impressions: u64,
-    pub likes: u64,
-    pub profile_visits: u64,
 }
 
 #[derive(Deserialize)]
@@ -524,23 +509,5 @@ mod tests {
         let err = latest_replies_with_body(200, body).unwrap_err();
 
         assert!(matches!(err, ApiError::Protocol(_)), "{err:?}");
-    }
-
-    #[test]
-    fn reply_round_trips_through_json() {
-        let reply = Reply {
-            id: "1".to_string(),
-            created_at: "2026-09-20T10:00:00Z".parse().unwrap(),
-            text: "a".to_string(),
-            to_username: "bob".to_string(),
-            impressions: 5,
-            likes: 2,
-            profile_visits: 1,
-        };
-
-        let json = serde_json::to_string(&reply).unwrap();
-        let round_tripped: Reply = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(round_tripped, reply);
     }
 }
