@@ -51,7 +51,7 @@ pub struct Me {
     pub handle: String,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Reply {
     pub id: String,
     pub created_at: DateTime<Utc>,
