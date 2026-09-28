@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+slug="${1:-}"
+if [ "$#" -ne 1 ] || ! [[ "$slug" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+    echo "usage: scripts/new-spec <slug> < body.md (slug: lowercase words joined by hyphens)" >&2
+    exit 1
+fi
+
+body="$(cat)"
+if [ -z "$body" ]; then
+    echo "spec body on stdin is empty" >&2
+    exit 1
+fi
+
+if [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ]; then
+    echo "specs are only added on main" >&2
+    exit 1
+fi
+
+lock="$(git rev-parse --git-dir)/spec.lock"
+attempts_left=200
+until mkdir "$lock" 2>/dev/null; do
+    attempts_left=$((attempts_left - 1))
+    if [ "$attempts_left" -le 0 ]; then
+        echo "could not take $lock within 10 seconds" >&2
+        exit 1
+    fi
+    sleep 0.05
+done
+trap 'rmdir "$lock"' EXIT
+
+highest=0
+for spec in docs/specs/*.md docs/specs/archive/*.md; do
+    [ -e "$spec" ] || continue
+    number="$(basename "$spec")"
+    number="${number:0:3}"
+    # 10# stops bash reading 008 and 009 as invalid octal
+    [[ "$number" =~ ^[0-9]{3}$ ]] || continue
+    if [ "$((10#$number))" -gt "$highest" ]; then
+        highest=$((10#$number))
+    fi
+done
+
+path="$(printf 'docs/specs/%03d-%s.md' "$((highest + 1))" "$slug")"
+set -o noclobber
+printf '%s\n' "$body" >"$path"
+echo "$path"
