@@ -348,7 +348,7 @@ mod tests {
     }
 
     #[test]
-    fn lists_newest_first() {
+    fn lists_newest_first_when_impressions_tie() {
         let out = render(
             &[
                 reply_at("2026-03-10T08:00:00Z", "old", "x", 1, 0, 0),
