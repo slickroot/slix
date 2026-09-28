@@ -8,7 +8,6 @@ pub struct History {
     dir: PathBuf,
 }
 
-#[allow(dead_code)]
 fn merge(saved: Vec<Reply>, fresh: &[Reply]) -> Vec<Reply> {
     let mut merged = saved;
     for reply in fresh {
@@ -90,12 +89,14 @@ impl History {
     }
 
     pub fn save(&self, date: NaiveDate, replies: &[Reply]) -> Result<(), HistoryError> {
+        let saved = self.load(date)?;
+        let merged = merge(saved.unwrap_or_default(), replies);
         std::fs::create_dir_all(&self.dir).map_err(HistoryError::Io)?;
         let path = self.path_for(date);
         let temp_path = self
             .dir
             .join(format!("{date}.json.tmp-{}", std::process::id()));
-        let json = serde_json::to_vec_pretty(replies).map_err(HistoryError::Json)?;
+        let json = serde_json::to_vec_pretty(&merged).map_err(HistoryError::Json)?;
         std::fs::write(&temp_path, json).map_err(HistoryError::Io)?;
         std::fs::rename(&temp_path, &path).map_err(HistoryError::Io)
     }
