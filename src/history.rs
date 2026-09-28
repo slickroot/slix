@@ -24,13 +24,6 @@ impl History {
         History { dir }
     }
 
-    pub fn default_dir() -> PathBuf {
-        dirs::config_dir()
-            .expect("no config dir available")
-            .join("slix")
-            .join("history")
-    }
-
     fn path_for(&self, date: NaiveDate) -> PathBuf {
         self.dir.join(format!("{date}.json"))
     }
@@ -99,12 +92,6 @@ impl History {
         let json = serde_json::to_vec_pretty(&merged).map_err(HistoryError::Json)?;
         std::fs::write(&temp_path, json).map_err(HistoryError::Io)?;
         std::fs::rename(&temp_path, &path).map_err(HistoryError::Io)
-    }
-}
-
-impl Default for History {
-    fn default() -> History {
-        History::new(History::default_dir())
     }
 }
 
@@ -188,18 +175,6 @@ mod tests {
         let loaded = history.load(date).unwrap();
 
         assert!(matches!(loaded, Some(replies) if replies.is_empty()));
-    }
-
-    #[test]
-    fn default_dir_is_config_dir_joined_with_slix_history() {
-        let expected = dirs::config_dir().unwrap().join("slix").join("history");
-        assert_eq!(History::default_dir(), expected);
-    }
-
-    #[test]
-    fn default_uses_default_dir() {
-        let history = History::default();
-        assert_eq!(history.dir, History::default_dir());
     }
 
     #[test]
