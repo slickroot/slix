@@ -327,6 +327,43 @@ mod tests {
     }
 
     #[test]
+    fn save_writes_the_pinned_history_format() {
+        let dir = test_dir("pinned-format");
+        let history = History::new(dir.clone());
+        let date = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap();
+
+        history.save(date, &[sample_reply("1")]).unwrap();
+
+        let contents = std::fs::read_to_string(dir.join(format!("{date}.json"))).unwrap();
+        let actual: serde_json::Value = serde_json::from_str(&contents).unwrap();
+        let expected = serde_json::json!([
+            {
+                "id": "1",
+                "created_at": "2026-09-20T10:00:00Z",
+                "text": "hi",
+                "to_username": "bob",
+                "impressions": 1,
+                "likes": 2,
+                "profile_visits": 3
+            }
+        ]);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn a_file_written_before_the_split_still_loads() {
+        let dir = test_dir("pre-split");
+        let history = History::new(dir.clone());
+        let date = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap();
+        let contents = r#"[{"id":"1","created_at":"2026-09-20T10:00:00Z","text":"hi","to_username":"bob","impressions":1,"likes":2,"profile_visits":3}]"#;
+        std::fs::write(dir.join(format!("{date}.json")), contents).unwrap();
+
+        let loaded = history.load(date).unwrap();
+
+        assert_eq!(loaded, Some(vec![sample_reply("1")]));
+    }
+
+    #[test]
     fn save_then_load_round_trips_replies_for_a_date() {
         let history = History::new(test_dir("roundtrip"));
         let date = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap();
