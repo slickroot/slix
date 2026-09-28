@@ -35,12 +35,15 @@ where
     if replies.is_empty() {
         return format!("{header}\nNo replies yesterday.");
     }
-    let mut newest_first: Vec<&Reply> = replies.iter().collect();
-    newest_first.sort_by_key(|reply| std::cmp::Reverse(reply.created_at));
-    let widths = Widths::of(&newest_first);
-    let lines = newest_first
-        .iter()
-        .map(|reply| render_line(reply, tz, &widths));
+    let mut ranked: Vec<&Reply> = replies.iter().collect();
+    ranked.sort_by_key(|reply| {
+        (
+            std::cmp::Reverse(reply.impressions),
+            std::cmp::Reverse(reply.created_at),
+        )
+    });
+    let widths = Widths::of(&ranked);
+    let lines = ranked.iter().map(|reply| render_line(reply, tz, &widths));
     std::iter::once(header)
         .chain(lines)
         .collect::<Vec<_>>()
@@ -335,17 +338,17 @@ mod tests {
         let preview_width = PREVIEW_WIDTH;
         let lines: Vec<&str> = out.lines().skip(1).collect();
         assert!(lines[0].contains(&format!(
-            "@al     {:<preview_width$}     5 impressions     5 likes     5 profile visits",
-            "short"
-        )));
-        assert!(lines[1].contains(&format!(
             "@bobby  {:<preview_width$}  1234 impressions  1234 likes  1234 profile visits",
             "longer text"
+        )));
+        assert!(lines[1].contains(&format!(
+            "@al     {:<preview_width$}     5 impressions     5 likes     5 profile visits",
+            "short"
         )));
     }
 
     #[test]
-    fn lists_newest_first() {
+    fn lists_newest_first_when_impressions_tie() {
         let out = render(
             &[
                 reply_at("2026-03-10T08:00:00Z", "old", "x", 1, 0, 0),
@@ -354,6 +357,18 @@ mod tests {
             &tz(),
         );
         assert!(out.find("@new").unwrap() < out.find("@old").unwrap());
+    }
+
+    #[test]
+    fn lists_highest_impressions_first() {
+        let out = render(
+            &[
+                reply_at("2026-03-10T20:00:00Z", "dud", "x", 5, 0, 0),
+                reply_at("2026-03-10T08:00:00Z", "star", "x", 900, 0, 0),
+            ],
+            &tz(),
+        );
+        assert!(out.find("@star").unwrap() < out.find("@dud").unwrap());
     }
 
     #[test]
