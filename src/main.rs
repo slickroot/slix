@@ -5,7 +5,6 @@ mod history;
 mod model;
 mod oauth;
 mod report;
-mod today;
 #[allow(dead_code)]
 mod window;
 
@@ -15,7 +14,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let oauth_base = "https://api.x.com/oauth";
     let path = config::Config::path();
     let history = history::History::new(config.data_dir.join("history"));
-    let today_goal = today::TodayGoal::new(config.data_dir.join("today.json"));
     let mut output = std::io::stdout();
 
     match connect(
@@ -30,9 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let now = chrono::Local::now();
             let latest = api.latest_replies(&me.id)?;
             save_replies(&history, latest)?;
-            let today_count = history.load(now.date_naive())?.unwrap_or_default().len() as u64;
-            today_goal.save(today_count, now)?;
-            write_report(&me, &history, &today_goal, now, &mut output)?;
+            write_report(&me, &history, now, &mut output)?;
         }
         Err(err) => match err.downcast::<Reconnected>() {
             Ok(_) => {}
@@ -45,7 +41,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn write_report(
     me: &model::Me,
     history: &history::History,
-    today_goal: &today::TodayGoal,
     now: chrono::DateTime<chrono::Local>,
     output: &mut impl std::io::Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -55,7 +50,7 @@ fn write_report(
     writeln!(output, "---")?;
     writeln!(output, "{} · connected", me.handle)?;
     let date = now.date_naive().pred_opt().unwrap();
-    let today_count = today_goal.load(now)?.unwrap_or(0);
+    let today_count = history.load(now.date_naive())?.unwrap_or_default().len() as u64;
     let replies = history.load(date)?.unwrap_or_default();
     writeln!(output, "{}", report::render(&replies, &chrono::Local))?;
 
@@ -179,7 +174,6 @@ mod tests {
         oauth_base: &str,
         path: &std::path::Path,
         history: &history::History,
-        today_goal: &today::TodayGoal,
         input: impl std::io::BufRead,
         mut output: impl std::io::Write,
         now: chrono::DateTime<chrono::Local>,
@@ -188,9 +182,7 @@ mod tests {
             Ok((config, api, me)) => {
                 let latest = api.latest_replies(&me.id)?;
                 save_replies(history, latest)?;
-                let today_count = history.load(now.date_naive())?.unwrap_or_default().len() as u64;
-                today_goal.save(today_count, now)?;
-                write_report(&me, history, today_goal, now, &mut output)?;
+                write_report(&me, history, now, &mut output)?;
                 Ok(config)
             }
             Err(err) => match err.downcast::<Reconnected>() {
@@ -220,10 +212,6 @@ mod tests {
 
     fn test_history(name: &str) -> history::History {
         history::History::new(test_dir(name))
-    }
-
-    fn test_today_goal(name: &str) -> today::TodayGoal {
-        today::TodayGoal::new(test_dir(name).join("today.json"))
     }
 
     fn connected_config() -> config::Config {
@@ -328,7 +316,6 @@ mod tests {
             &oauth_base(&server),
             &path,
             &test_history("first-run"),
-            &test_today_goal("first-run"),
             std::io::Cursor::new("123456\n"),
             &mut output,
             now(),
@@ -371,7 +358,6 @@ mod tests {
             &oauth_base(&server),
             &path,
             &test_history("verify-on-startup"),
-            &test_today_goal("verify-on-startup"),
             std::io::Cursor::new(""),
             &mut output,
             now(),
@@ -406,7 +392,6 @@ mod tests {
             &oauth_base(&server),
             &path,
             &test_history("reconnect"),
-            &test_today_goal("reconnect"),
             std::io::Cursor::new("123456\n"),
             &mut output,
             now(),
@@ -445,7 +430,6 @@ mod tests {
             &oauth_base(&server),
             &path,
             &test_history("re-open-first"),
-            &test_today_goal("re-open-first"),
             std::io::Cursor::new("123456\n"),
             &mut first_output,
             now(),
@@ -460,7 +444,6 @@ mod tests {
             &oauth_base(&server),
             &path,
             &test_history("re-open-second"),
-            &test_today_goal("re-open-second"),
             std::io::Cursor::new(""),
             &mut second_output,
             now(),
@@ -493,7 +476,6 @@ mod tests {
             &oauth_base(&server),
             &path,
             &test_history("exchange-failure"),
-            &test_today_goal("exchange-failure"),
             std::io::Cursor::new("123456\n"),
             &mut output,
             now(),
@@ -533,7 +515,6 @@ mod tests {
             &oauth_base(&server),
             &test_dir("report-config").join("config.json"),
             &history,
-            &test_today_goal("report-today"),
             std::io::Cursor::new(""),
             &mut output,
             now(),
@@ -580,7 +561,6 @@ mod tests {
             &oauth_base(&server),
             &test_dir("grid-config").join("config.json"),
             &test_history("grid-history"),
-            &test_today_goal("grid-today"),
             std::io::Cursor::new(""),
             &mut output,
             today,
@@ -612,7 +592,6 @@ mod tests {
             &oauth_base(&server),
             &test_dir("empty-day").join("config.json"),
             &test_history("empty-day"),
-            &test_today_goal("empty-day"),
             std::io::Cursor::new(""),
             &mut output,
             now(),
@@ -671,7 +650,6 @@ mod tests {
             &oauth_base(&server),
             &test_dir("accounts-section-config").join("config.json"),
             &history,
-            &test_today_goal("accounts-section-today"),
             std::io::Cursor::new(""),
             &mut output,
             now(),
@@ -708,7 +686,6 @@ mod tests {
             &oauth_base(&server),
             &test_dir("accounts-empty").join("config.json"),
             &test_history("accounts-empty"),
-            &test_today_goal("accounts-empty"),
             std::io::Cursor::new(""),
             &mut output,
             now(),
@@ -739,7 +716,7 @@ mod tests {
     }
 
     #[test]
-    fn today_count_is_derived_from_the_fresh_fetch_not_a_stale_cache() {
+    fn today_count_comes_from_todays_history_file() {
         let server = MockServer::start();
         mock_users_me(&server, 200, "slickroot");
         let today = now();
@@ -748,8 +725,6 @@ mod tests {
             &[included_user_json("9", "bob")],
         );
         mock_tweets(&server, 200, &body);
-        let today_goal = test_today_goal("today-cached-goal");
-        today_goal.save(3, today).unwrap();
         let mut output = Vec::new();
 
         connect_and_write_report(
@@ -758,7 +733,6 @@ mod tests {
             &oauth_base(&server),
             &test_dir("today-cached-config").join("config.json"),
             &seeded_history("today-cached-history"),
-            &today_goal,
             std::io::Cursor::new(""),
             &mut output,
             today,
@@ -936,7 +910,6 @@ mod tests {
         mock_tweets(&server, 200, &body);
 
         let history = test_history("acceptance-skipped-day");
-        let today_goal = test_today_goal("acceptance-skipped-day");
         let mut output = Vec::new();
 
         connect_and_write_report(
@@ -945,7 +918,6 @@ mod tests {
             &oauth_base(&server),
             &test_dir("acceptance-skipped-day-config").join("config.json"),
             &history,
-            &today_goal,
             std::io::Cursor::new(""),
             &mut output,
             now,
@@ -973,7 +945,6 @@ mod tests {
         let text = String::from_utf8(output).unwrap();
         assert!(text.contains("@dave"), "{text}");
 
-        assert_eq!(today_goal.load(now).unwrap(), Some(1));
         assert!(text.contains(&report::render_today(1)), "{text}");
     }
 }
