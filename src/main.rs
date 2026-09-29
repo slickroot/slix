@@ -522,11 +522,11 @@ mod tests {
         let text = String::from_utf8(output).unwrap();
         let chunks: Vec<&str> = text.split("\n\n---\n").collect();
         assert_eq!(chunks.len(), 5, "{text}");
+        assert_eq!(chunks[0], "Welcome\n@slickroot · connected", "{text}");
         assert_eq!(
-            chunks[0], "Last 30 days\n· · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·",
+            chunks[1], "Last 30 days\n· · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·",
             "{text}"
         );
-        assert_eq!(chunks[1], "Welcome\n@slickroot · connected", "{text}");
         assert_eq!(
             chunks[2],
             format!(
@@ -544,7 +544,7 @@ mod tests {
     }
 
     #[test]
-    fn report_starts_with_thirty_day_grid_then_divider_then_handle() {
+    fn report_starts_with_welcome_then_grid() {
         let server = MockServer::start();
         mock_users_me(&server, 200, "slickroot");
         let today = now();
@@ -572,11 +572,11 @@ mod tests {
 
         let text = String::from_utf8(output).unwrap();
         let chunks: Vec<&str> = text.split("\n\n---\n").collect();
+        assert_eq!(chunks[0], "Welcome\n@slickroot · connected", "{text}");
         assert_eq!(
-            chunks[0], "Last 30 days\n· · · · · · · · · · · · · · · · · · · · · · · · · · · · · ■",
+            chunks[1], "Last 30 days\n· · · · · · · · · · · · · · · · · · · · · · · · · · · · · ■",
             "{text}"
         );
-        assert_eq!(chunks[1], "Welcome\n@slickroot · connected", "{text}");
     }
 
     #[test]
@@ -661,11 +661,11 @@ mod tests {
         let text = String::from_utf8(output).unwrap();
         let chunks: Vec<&str> = text.split("\n\n---\n").collect();
         assert_eq!(chunks.len(), 5, "{text}");
+        assert_eq!(chunks[0], "Welcome\n@slickroot · connected", "{text}");
         assert_eq!(
-            chunks[0], "Last 30 days\n· · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·",
+            chunks[1], "Last 30 days\n· · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·",
             "{text}"
         );
-        assert_eq!(chunks[1], "Welcome\n@slickroot · connected", "{text}");
         assert_eq!(
             chunks[2],
             format!(
@@ -703,11 +703,11 @@ mod tests {
         let text = String::from_utf8(output).unwrap();
         let chunks: Vec<&str> = text.split("\n\n---\n").collect();
         assert_eq!(chunks.len(), 5, "{text}");
+        assert_eq!(chunks[0], "Welcome\n@slickroot · connected", "{text}");
         assert_eq!(
-            chunks[0], "Last 30 days\n· · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·",
+            chunks[1], "Last 30 days\n· · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·",
             "{text}"
         );
-        assert_eq!(chunks[1], "Welcome\n@slickroot · connected", "{text}");
         assert_eq!(
             chunks[2], "Yesterday · 0 replies\nNo replies yesterday.",
             "{text}"

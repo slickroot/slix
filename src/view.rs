@@ -21,8 +21,8 @@ pub struct Dataset {
 
 pub fn all() -> Vec<Box<dyn View>> {
     vec![
-        Box::new(GoalGrid),
         Box::new(Welcome),
+        Box::new(GoalGrid),
         Box::new(Yesterday),
         Box::new(TopAccounts),
         Box::new(DailyGoal),
