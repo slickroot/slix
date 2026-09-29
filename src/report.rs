@@ -4,51 +4,6 @@ use chrono::TimeZone;
 
 pub(crate) const PREVIEW_LIMIT: usize = 50;
 pub(crate) const PREVIEW_WIDTH: usize = PREVIEW_LIMIT + 1;
-const DAILY_GOAL: u64 = 5;
-pub const GRID_TITLE: &str = "Last 30 days";
-
-pub fn render_today(count: u64) -> String {
-    if count >= DAILY_GOAL {
-        format!("Today: {count} of {DAILY_GOAL} replies (goal met!)")
-    } else {
-        format!(
-            "Today: {count} of {DAILY_GOAL} replies ({} to go)",
-            DAILY_GOAL - count
-        )
-    }
-}
-
-pub fn render_grid(counts: &[u64]) -> String {
-    let squares = counts
-        .iter()
-        .map(|&count| if count >= DAILY_GOAL { "■" } else { "·" })
-        .collect::<Vec<_>>()
-        .join(" ");
-    format!("{GRID_TITLE}\n{squares}")
-}
-
-pub fn render<Tz: TimeZone>(replies: &[Reply], tz: &Tz) -> String
-where
-    Tz::Offset: std::fmt::Display,
-{
-    let header = format!("Yesterday · {} replies", replies.len());
-    if replies.is_empty() {
-        return format!("{header}\nNo replies yesterday.");
-    }
-    let mut ranked: Vec<&Reply> = replies.iter().collect();
-    ranked.sort_by_key(|reply| {
-        (
-            std::cmp::Reverse(reply.impressions),
-            std::cmp::Reverse(reply.created_at),
-        )
-    });
-    let widths = Widths::of(&ranked);
-    let lines = ranked.iter().map(|reply| render_line(reply, tz, &widths));
-    std::iter::once(header)
-        .chain(lines)
-        .collect::<Vec<_>>()
-        .join("\n")
-}
 
 pub(crate) struct Widths {
     handle: usize,
@@ -116,22 +71,6 @@ pub(crate) fn preview(text: &str) -> String {
 
 pub(crate) fn link(id: &str) -> String {
     format!("\x1b]8;;https://x.com/i/status/{id}\x1b\\[link]\x1b]8;;\x1b\\")
-}
-
-pub fn render_accounts(ranks: &[accounts::AccountRank]) -> String {
-    let header = "Accounts";
-    if ranks.is_empty() {
-        return format!("{header}\nNo data yet.");
-    }
-    let widths = AccountWidths::of(ranks);
-    let lines = ranks
-        .iter()
-        .enumerate()
-        .map(|(index, account)| render_account_line(index + 1, account, &widths));
-    std::iter::once(header.to_string())
-        .chain(lines)
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 pub(crate) struct AccountWidths {
@@ -209,15 +148,17 @@ mod tests {
 
     #[test]
     fn collapses_newlines_in_preview() {
-        let out = render(&[reply("a\nb\r\nc")], &tz());
+        let reply = reply("a\nb\r\nc");
+        let out = render_line(&reply, &tz(), &Widths::of(&[&reply]));
         assert!(out.contains("a b  c"));
-        assert_eq!(out.lines().count(), 2);
+        assert_eq!(out.lines().count(), 1);
     }
 
     #[test]
     fn keeps_preview_at_the_limit() {
         let text = "x".repeat(PREVIEW_LIMIT);
-        let out = render(&[reply(&text)], &tz());
+        let reply = reply(&text);
+        let out = render_line(&reply, &tz(), &Widths::of(&[&reply]));
         assert!(out.contains(&text));
         assert!(!out.contains('…'));
     }
@@ -225,14 +166,16 @@ mod tests {
     #[test]
     fn cuts_preview_over_the_limit_with_ellipsis() {
         let text = "x".repeat(PREVIEW_LIMIT + 1);
-        let out = render(&[reply(&text)], &tz());
+        let reply = reply(&text);
+        let out = render_line(&reply, &tz(), &Widths::of(&[&reply]));
         assert!(out.contains(&format!("{}…", "x".repeat(PREVIEW_LIMIT))));
         assert!(!out.contains(&text));
     }
 
     #[test]
     fn links_with_osc8_hyperlink() {
-        let out = render(&[reply("hi")], &tz());
+        let reply = reply("hi");
+        let out = render_line(&reply, &tz(), &Widths::of(&[&reply]));
         assert!(out.ends_with("\x1b]8;;https://x.com/i/status/123\x1b\\[link]\x1b]8;;\x1b\\"));
     }
 
@@ -252,19 +195,22 @@ mod tests {
 
     #[test]
     fn shows_zero_profile_visits() {
-        let out = render(&[reply_with_profile_visits(0)], &tz());
+        let reply = reply_with_profile_visits(0);
+        let out = render_line(&reply, &tz(), &Widths::of(&[&reply]));
         assert!(out.contains("0 profile visits"));
     }
 
     #[test]
     fn uses_the_word_visits_for_a_single_profile_visit() {
-        let out = render(&[reply_with_profile_visits(1)], &tz());
+        let reply = reply_with_profile_visits(1);
+        let out = render_line(&reply, &tz(), &Widths::of(&[&reply]));
         assert!(out.contains("1 profile visits"));
     }
 
     #[test]
     fn puts_profile_visits_between_likes_and_link() {
-        let out = render(&[reply_with_profile_visits(7)], &tz());
+        let reply = reply_with_profile_visits(7);
+        let out = render_line(&reply, &tz(), &Widths::of(&[&reply]));
         let likes = out.find("0 likes").unwrap();
         let visits = out.find("7 profile visits").unwrap();
         let link = out.find("[link]").unwrap();
@@ -273,19 +219,22 @@ mod tests {
 
     #[test]
     fn shows_zero_likes() {
-        let out = render(&[reply_with_likes(0)], &tz());
+        let reply = reply_with_likes(0);
+        let out = render_line(&reply, &tz(), &Widths::of(&[&reply]));
         assert!(out.contains("0 likes"));
     }
 
     #[test]
     fn uses_the_word_likes_for_a_single_like() {
-        let out = render(&[reply_with_likes(1)], &tz());
+        let reply = reply_with_likes(1);
+        let out = render_line(&reply, &tz(), &Widths::of(&[&reply]));
         assert!(out.contains("1 likes"));
     }
 
     #[test]
     fn puts_likes_between_impressions_and_link() {
-        let out = render(&[reply_with_likes(7)], &tz());
+        let reply = reply_with_likes(7);
+        let out = render_line(&reply, &tz(), &Widths::of(&[&reply]));
         let impressions = out.find("42 impressions").unwrap();
         let likes = out.find("7 likes").unwrap();
         let link = out.find("[link]").unwrap();

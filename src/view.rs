@@ -4,6 +4,8 @@ use crate::accounts::AccountRank;
 use crate::model::Reply;
 use crate::report;
 
+const DAILY_GOAL: u64 = 5;
+
 pub trait View {
     fn title(&self) -> &'static str;
     fn render(&self, data: &Dataset, now: DateTime<Local>) -> String;
@@ -43,10 +45,11 @@ impl View for GoalGrid {
     }
 
     fn render(&self, data: &Dataset, _now: DateTime<Local>) -> String {
-        let grid = report::render_grid(&data.counts);
-        grid.split_once('\n')
-            .map(|(_, squares)| squares.to_string())
-            .unwrap_or_default()
+        data.counts
+            .iter()
+            .map(|&count| if count >= DAILY_GOAL { "■" } else { "·" })
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 }
 
@@ -66,7 +69,26 @@ impl View for Yesterday {
     }
 
     fn render(&self, data: &Dataset, now: DateTime<Local>) -> String {
-        report::render(&data.yesterday, &now.timezone())
+        let tz = now.timezone();
+        let header = format!("Yesterday · {} replies", data.yesterday.len());
+        if data.yesterday.is_empty() {
+            return format!("{header}\nNo replies yesterday.");
+        }
+        let mut ranked: Vec<&Reply> = data.yesterday.iter().collect();
+        ranked.sort_by_key(|reply| {
+            (
+                std::cmp::Reverse(reply.impressions),
+                std::cmp::Reverse(reply.created_at),
+            )
+        });
+        let widths = report::Widths::of(&ranked);
+        let lines = ranked
+            .iter()
+            .map(|reply| report::render_line(reply, &tz, &widths));
+        std::iter::once(header)
+            .chain(lines)
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 }
 
@@ -76,11 +98,16 @@ impl View for TopAccounts {
     }
 
     fn render(&self, data: &Dataset, _now: DateTime<Local>) -> String {
-        let accounts = report::render_accounts(&data.ranks);
-        accounts
-            .split_once('\n')
-            .map(|(_, rows)| rows.to_string())
-            .unwrap_or_default()
+        if data.ranks.is_empty() {
+            return "No data yet.".to_string();
+        }
+        let widths = report::AccountWidths::of(&data.ranks);
+        data.ranks
+            .iter()
+            .enumerate()
+            .map(|(index, account)| report::render_account_line(index + 1, account, &widths))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 }
 
@@ -90,7 +117,18 @@ impl View for DailyGoal {
     }
 
     fn render(&self, data: &Dataset, _now: DateTime<Local>) -> String {
-        report::render_today(data.today_count)
+        if data.today_count >= DAILY_GOAL {
+            format!(
+                "Today: {} of {DAILY_GOAL} replies (goal met!)",
+                data.today_count
+            )
+        } else {
+            format!(
+                "Today: {} of {DAILY_GOAL} replies ({} to go)",
+                data.today_count,
+                DAILY_GOAL - data.today_count
+            )
+        }
     }
 }
 
