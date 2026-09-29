@@ -5,6 +5,7 @@ mod history;
 mod model;
 mod oauth;
 mod report;
+mod view;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = config::Config::load()?;
@@ -43,26 +44,29 @@ fn write_report(
     output: &mut impl std::io::Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let counts = history.last_30_day_counts(now.date_naive())?;
-    writeln!(output, "{}", report::render_grid(&counts))?;
-    writeln!(output)?;
-    writeln!(output, "---")?;
-    writeln!(output, "{} · connected", me.handle)?;
     let date = now.date_naive().pred_opt().unwrap();
     let today_count = history.load(now.date_naive())?.unwrap_or_default().len() as u64;
-    let replies = history.load(date)?.unwrap_or_default();
-    writeln!(output, "{}", report::render(&replies, &chrono::Local))?;
-
-    writeln!(output)?;
-    writeln!(output, "---")?;
-    writeln!(output)?;
+    let yesterday = history.load(date)?.unwrap_or_default();
     let all_replies = history.load_all()?;
     let ranks = accounts::rank(&all_replies);
-    writeln!(output, "{}", report::render_accounts(&ranks))?;
-    writeln!(output)?;
-    writeln!(output, "---")?;
-    writeln!(output)?;
-
-    writeln!(output, "{}", report::render_today(today_count))?;
+    let dataset = view::Dataset {
+        handle: me.handle.clone(),
+        counts,
+        yesterday,
+        ranks,
+        today_count,
+    };
+    for (i, view) in view::all().iter().enumerate() {
+        if i > 0 {
+            writeln!(output)?;
+            writeln!(output, "---")?;
+        }
+        let title = view.title();
+        if !title.is_empty() {
+            writeln!(output, "{title}")?;
+        }
+        writeln!(output, "{}", view.render(&dataset, now))?;
+    }
     Ok(())
 }
 
@@ -363,10 +367,7 @@ mod tests {
         .unwrap();
 
         let text = String::from_utf8(output).unwrap();
-        assert_eq!(
-            text.lines().nth(4).unwrap(),
-            format!("@{username} · connected")
-        );
+        assert!(text.contains(&format!("@{username} · connected")));
         assert_eq!(request_token.calls(), 0);
         assert_eq!(access_token.calls(), 0);
         assert!(config.is_connected());
@@ -449,10 +450,7 @@ mod tests {
         .unwrap();
 
         let text = String::from_utf8(second_output).unwrap();
-        assert_eq!(
-            text.lines().nth(4).unwrap(),
-            format!("@{username} · connected")
-        );
+        assert!(text.contains(&format!("@{username} · connected")));
         assert_eq!(request_token.calls(), 1);
         assert_eq!(access_token.calls(), 1);
         assert_eq!(users_me.calls(), 2);
@@ -491,12 +489,14 @@ mod tests {
         mock_tweets(&server, 200, NO_TWEETS);
         let history = test_history("report");
         let date = now().date_naive().pred_opt().unwrap();
+        let created_at: chrono::DateTime<chrono::Utc> = "2026-05-01T09:30:00Z".parse().unwrap();
+        let time = created_at.with_timezone(&chrono::Local).format("%H:%M");
         history
             .save(
                 date,
                 &[model::Reply {
                     id: "7".into(),
-                    created_at: chrono::Utc::now(),
+                    created_at,
                     text: "hello there".into(),
                     to_username: "bob".into(),
                     impressions: 12,
@@ -520,26 +520,31 @@ mod tests {
         .unwrap();
 
         let text = String::from_utf8(output).unwrap();
-        let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines[4], "@slickroot · connected");
-        assert_eq!(lines[5], "Yesterday · 1 replies");
-        assert!(lines[6].contains("@bob"), "{text}");
-        assert!(lines[6].contains("12 impressions"), "{text}");
-        assert_eq!(lines[7], "");
-        assert_eq!(lines[8], "---");
-        assert_eq!(lines[9], "");
-        assert_eq!(lines[10], "Accounts");
-        assert!(lines[11].contains("@bob"), "{text}");
-        assert_eq!(lines[12], "");
-        assert_eq!(lines[13], "---");
-        assert_eq!(lines[14], "");
-        assert_eq!(lines[15], report::render_today(0));
-        assert_eq!(lines.len(), 16, "{text}");
+        let chunks: Vec<&str> = text.split("\n\n---\n").collect();
+        assert_eq!(chunks.len(), 5, "{text}");
+        assert_eq!(chunks[0], "Welcome\n@slickroot · connected", "{text}");
+        assert_eq!(
+            chunks[1], "Last 30 days\n· · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·",
+            "{text}"
+        );
+        assert_eq!(
+            chunks[2],
+            format!(
+                "Yesterday · 1 replies\n{time}  @bob  hello there                                          12 impressions  3 likes  4 profile visits  \x1b]8;;https://x.com/i/status/7\x1b\\[link]\x1b]8;;\x1b\\"
+            ),
+            "{text}"
+        );
+        assert_eq!(
+            chunks[3],
+            "Accounts\n1. \x1b]8;;https://x.com/bob\x1b\\@bob\x1b]8;;\x1b\\  12 avg impressions  1 replies",
+            "{text}"
+        );
+        assert_eq!(chunks[4], "Today: 0 of 5 replies (5 to go)\n", "{text}");
         assert!(text.ends_with('\n'));
     }
 
     #[test]
-    fn report_starts_with_thirty_day_grid_then_divider_then_handle() {
+    fn report_starts_with_welcome_then_grid() {
         let server = MockServer::start();
         mock_users_me(&server, 200, "slickroot");
         let today = now();
@@ -566,15 +571,12 @@ mod tests {
         .unwrap();
 
         let text = String::from_utf8(output).unwrap();
-        let lines: Vec<&str> = text.lines().collect();
-        let mut counts = vec![0; 29];
-        counts.push(u64::MAX);
-        let expected_grid = report::render_grid(&counts);
-        assert_eq!(lines[0], report::GRID_TITLE, "{text}");
-        assert_eq!(lines[1], expected_grid.lines().nth(1).unwrap(), "{text}");
-        assert_eq!(lines[2], "");
-        assert_eq!(lines[3], "---");
-        assert_eq!(lines[4], "@slickroot · connected");
+        let chunks: Vec<&str> = text.split("\n\n---\n").collect();
+        assert_eq!(chunks[0], "Welcome\n@slickroot · connected", "{text}");
+        assert_eq!(
+            chunks[1], "Last 30 days\n· · · · · · · · · · · · · · · · · · · · · · · · · · · · · ■",
+            "{text}"
+        );
     }
 
     #[test]
@@ -599,7 +601,7 @@ mod tests {
         let text = String::from_utf8(output).unwrap();
         assert!(text.contains("No replies yesterday.\n"), "{text}");
         assert!(
-            text.ends_with(&format!("{}\n", report::render_today(0))),
+            text.ends_with("Today: 0 of 5 replies (5 to go)\n"),
             "{text}"
         );
     }
@@ -612,12 +614,14 @@ mod tests {
         let history = test_history("accounts-section");
         let yesterday_date = now().date_naive().pred_opt().unwrap();
         let earlier_date = yesterday_date.pred_opt().unwrap();
+        let created_at: chrono::DateTime<chrono::Utc> = "2026-05-01T09:30:00Z".parse().unwrap();
+        let time = created_at.with_timezone(&chrono::Local).format("%H:%M");
         history
             .save(
                 yesterday_date,
                 &[model::Reply {
                     id: "7".into(),
-                    created_at: chrono::Utc::now(),
+                    created_at,
                     text: "hello there".into(),
                     to_username: "bob".into(),
                     impressions: 12,
@@ -631,7 +635,7 @@ mod tests {
                 earlier_date,
                 &[model::Reply {
                     id: "1".into(),
-                    created_at: chrono::Utc::now(),
+                    created_at: "2026-05-01T08:00:00Z".parse().unwrap(),
                     text: "hi".into(),
                     to_username: "alice".into(),
                     impressions: 20,
@@ -655,20 +659,26 @@ mod tests {
         .unwrap();
 
         let text = String::from_utf8(output).unwrap();
-        let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines[4], "@slickroot · connected");
-        assert_eq!(lines[5], "Yesterday · 1 replies");
-        assert!(lines[6].contains("@bob"), "{text}");
-        assert_eq!(lines[7], "");
-        assert_eq!(lines[8], "---");
-        assert_eq!(lines[9], "");
-        assert_eq!(lines[10], "Accounts");
-        assert!(lines[11].contains("@alice"), "{text}");
-        assert!(lines[12].contains("@bob"), "{text}");
-        assert_eq!(lines[13], "");
-        assert_eq!(lines[14], "---");
-        assert_eq!(lines[15], "");
-        assert_eq!(lines[16], report::render_today(0));
+        let chunks: Vec<&str> = text.split("\n\n---\n").collect();
+        assert_eq!(chunks.len(), 5, "{text}");
+        assert_eq!(chunks[0], "Welcome\n@slickroot · connected", "{text}");
+        assert_eq!(
+            chunks[1], "Last 30 days\n· · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·",
+            "{text}"
+        );
+        assert_eq!(
+            chunks[2],
+            format!(
+                "Yesterday · 1 replies\n{time}  @bob  hello there                                          12 impressions  3 likes  4 profile visits  \x1b]8;;https://x.com/i/status/7\x1b\\[link]\x1b]8;;\x1b\\"
+            ),
+            "{text}"
+        );
+        assert_eq!(
+            chunks[3],
+            "Accounts\n1. \x1b]8;;https://x.com/alice\x1b\\@alice\x1b]8;;\x1b\\  20 avg impressions  1 replies\n2. \x1b]8;;https://x.com/bob\x1b\\@bob\x1b]8;;\x1b\\    12 avg impressions  1 replies",
+            "{text}"
+        );
+        assert_eq!(chunks[4], "Today: 0 of 5 replies (5 to go)\n", "{text}");
     }
 
     #[test]
@@ -691,19 +701,19 @@ mod tests {
         .unwrap();
 
         let text = String::from_utf8(output).unwrap();
-        let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines[4], "@slickroot · connected");
-        assert_eq!(lines[5], "Yesterday · 0 replies");
-        assert_eq!(lines[6], "No replies yesterday.");
-        assert_eq!(lines[7], "");
-        assert_eq!(lines[8], "---");
-        assert_eq!(lines[9], "");
-        assert_eq!(lines[10], "Accounts");
-        assert_eq!(lines[11], "No data yet.");
-        assert_eq!(lines[12], "");
-        assert_eq!(lines[13], "---");
-        assert_eq!(lines[14], "");
-        assert_eq!(lines[15], report::render_today(0));
+        let chunks: Vec<&str> = text.split("\n\n---\n").collect();
+        assert_eq!(chunks.len(), 5, "{text}");
+        assert_eq!(chunks[0], "Welcome\n@slickroot · connected", "{text}");
+        assert_eq!(
+            chunks[1], "Last 30 days\n· · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·",
+            "{text}"
+        );
+        assert_eq!(
+            chunks[2], "Yesterday · 0 replies\nNo replies yesterday.",
+            "{text}"
+        );
+        assert_eq!(chunks[3], "Accounts\nNo data yet.", "{text}");
+        assert_eq!(chunks[4], "Today: 0 of 5 replies (5 to go)\n", "{text}");
     }
 
     fn seeded_history(name: &str) -> history::History {
@@ -738,7 +748,7 @@ mod tests {
         .unwrap();
 
         let text = String::from_utf8(output).unwrap();
-        assert!(text.contains(&report::render_today(1)), "{text}");
+        assert!(text.contains("Today: 1 of 5 replies (4 to go)"), "{text}");
     }
 
     #[test]
@@ -943,6 +953,6 @@ mod tests {
         let text = String::from_utf8(output).unwrap();
         assert!(text.contains("@dave"), "{text}");
 
-        assert!(text.contains(&report::render_today(1)), "{text}");
+        assert!(text.contains("Today: 1 of 5 replies (4 to go)"), "{text}");
     }
 }
