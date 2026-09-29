@@ -2,8 +2,8 @@ use crate::accounts;
 use crate::model::Reply;
 use chrono::TimeZone;
 
-const PREVIEW_LIMIT: usize = 50;
-const PREVIEW_WIDTH: usize = PREVIEW_LIMIT + 1;
+pub(crate) const PREVIEW_LIMIT: usize = 50;
+pub(crate) const PREVIEW_WIDTH: usize = PREVIEW_LIMIT + 1;
 const DAILY_GOAL: u64 = 5;
 pub const GRID_TITLE: &str = "Last 30 days";
 
@@ -50,7 +50,7 @@ where
         .join("\n")
 }
 
-struct Widths {
+pub(crate) struct Widths {
     handle: usize,
     impressions: usize,
     likes: usize,
@@ -58,7 +58,7 @@ struct Widths {
 }
 
 impl Widths {
-    fn of(replies: &[&Reply]) -> Self {
+    pub(crate) fn of(replies: &[&Reply]) -> Self {
         Widths {
             handle: replies
                 .iter()
@@ -84,7 +84,7 @@ impl Widths {
     }
 }
 
-fn render_line<Tz: TimeZone>(reply: &Reply, tz: &Tz, widths: &Widths) -> String
+pub(crate) fn render_line<Tz: TimeZone>(reply: &Reply, tz: &Tz, widths: &Widths) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
@@ -104,7 +104,7 @@ where
     )
 }
 
-fn preview(text: &str) -> String {
+pub(crate) fn preview(text: &str) -> String {
     let single_line = text.replace(['\r', '\n'], " ");
     if single_line.chars().count() > PREVIEW_LIMIT {
         let cut: String = single_line.chars().take(PREVIEW_LIMIT).collect();
@@ -114,7 +114,7 @@ fn preview(text: &str) -> String {
     }
 }
 
-fn link(id: &str) -> String {
+pub(crate) fn link(id: &str) -> String {
     format!("\x1b]8;;https://x.com/i/status/{id}\x1b\\[link]\x1b]8;;\x1b\\")
 }
 
@@ -134,7 +134,7 @@ pub fn render_accounts(ranks: &[accounts::AccountRank]) -> String {
         .join("\n")
 }
 
-struct AccountWidths {
+pub(crate) struct AccountWidths {
     rank: usize,
     handle: usize,
     avg_impressions: usize,
@@ -142,7 +142,7 @@ struct AccountWidths {
 }
 
 impl AccountWidths {
-    fn of(ranks: &[accounts::AccountRank]) -> Self {
+    pub(crate) fn of(ranks: &[accounts::AccountRank]) -> Self {
         AccountWidths {
             rank: ranks.len().to_string().len(),
             handle: ranks
@@ -164,7 +164,7 @@ impl AccountWidths {
     }
 }
 
-fn render_account_line(
+pub(crate) fn render_account_line(
     rank: usize,
     account: &accounts::AccountRank,
     widths: &AccountWidths,
@@ -182,7 +182,7 @@ fn render_account_line(
     )
 }
 
-fn account_link(handle: &str) -> String {
+pub(crate) fn account_link(handle: &str) -> String {
     format!("\x1b]8;;https://x.com/{handle}\x1b\\@{handle}\x1b]8;;\x1b\\")
 }
 
@@ -205,14 +205,6 @@ mod tests {
 
     fn tz() -> FixedOffset {
         FixedOffset::east_opt(2 * 3600).unwrap()
-    }
-
-    #[test]
-    fn shows_local_time_handle_and_impressions() {
-        let out = render(&[reply("hi")], &tz());
-        assert!(out.contains("01:30"));
-        assert!(out.contains("@alice"));
-        assert!(out.contains("42 impressions"));
     }
 
     #[test]
@@ -248,25 +240,6 @@ mod tests {
         Reply {
             likes,
             ..reply("hi")
-        }
-    }
-
-    fn reply_at(
-        created_at: &str,
-        to_username: &str,
-        text: &str,
-        impressions: u64,
-        likes: u64,
-        profile_visits: u64,
-    ) -> Reply {
-        Reply {
-            id: "1".into(),
-            created_at: created_at.parse::<DateTime<Utc>>().unwrap(),
-            text: text.into(),
-            to_username: to_username.into(),
-            impressions,
-            likes,
-            profile_visits,
         }
     }
 
@@ -317,207 +290,5 @@ mod tests {
         let likes = out.find("7 likes").unwrap();
         let link = out.find("[link]").unwrap();
         assert!(impressions < likes && likes < link);
-    }
-
-    #[test]
-    fn aligns_columns_across_replies() {
-        let out = render(
-            &[
-                reply_at("2026-03-10T10:00:00Z", "al", "short", 5, 5, 5),
-                reply_at(
-                    "2026-03-10T09:00:00Z",
-                    "bobby",
-                    "longer text",
-                    1234,
-                    1234,
-                    1234,
-                ),
-            ],
-            &tz(),
-        );
-        let preview_width = PREVIEW_WIDTH;
-        let lines: Vec<&str> = out.lines().skip(1).collect();
-        assert!(lines[0].contains(&format!(
-            "@bobby  {:<preview_width$}  1234 impressions  1234 likes  1234 profile visits",
-            "longer text"
-        )));
-        assert!(lines[1].contains(&format!(
-            "@al     {:<preview_width$}     5 impressions     5 likes     5 profile visits",
-            "short"
-        )));
-    }
-
-    #[test]
-    fn lists_newest_first_when_impressions_tie() {
-        let out = render(
-            &[
-                reply_at("2026-03-10T08:00:00Z", "old", "x", 1, 0, 0),
-                reply_at("2026-03-10T20:00:00Z", "new", "x", 1, 0, 0),
-            ],
-            &tz(),
-        );
-        assert!(out.find("@new").unwrap() < out.find("@old").unwrap());
-    }
-
-    #[test]
-    fn lists_highest_impressions_first() {
-        let out = render(
-            &[
-                reply_at("2026-03-10T20:00:00Z", "dud", "x", 5, 0, 0),
-                reply_at("2026-03-10T08:00:00Z", "star", "x", 900, 0, 0),
-            ],
-            &tz(),
-        );
-        assert!(out.find("@star").unwrap() < out.find("@dud").unwrap());
-    }
-
-    #[test]
-    fn starts_with_header_counting_replies() {
-        let out = render(&[reply("a"), reply("b")], &tz());
-        assert!(out.starts_with("Yesterday · 2 replies\n"));
-    }
-
-    #[test]
-    fn says_so_when_there_are_no_replies() {
-        assert_eq!(
-            render(&[], &tz()),
-            "Yesterday · 0 replies\nNo replies yesterday."
-        );
-    }
-
-    #[test]
-    fn shows_replies_to_go_below_the_daily_goal() {
-        assert_eq!(
-            render_today(3),
-            format!("Today: 3 of {DAILY_GOAL} replies (2 to go)")
-        );
-    }
-
-    #[test]
-    fn shows_goal_met_at_the_daily_goal() {
-        assert_eq!(
-            render_today(DAILY_GOAL),
-            format!("Today: {DAILY_GOAL} of {DAILY_GOAL} replies (goal met!)")
-        );
-    }
-
-    #[test]
-    fn shows_goal_met_above_the_daily_goal() {
-        assert_eq!(
-            render_today(7),
-            format!("Today: 7 of {DAILY_GOAL} replies (goal met!)")
-        );
-    }
-
-    #[test]
-    fn shows_replies_to_go_with_zero_replies() {
-        assert_eq!(
-            render_today(0),
-            format!("Today: 0 of {DAILY_GOAL} replies ({DAILY_GOAL} to go)")
-        );
-    }
-
-    fn grid_squares(counts: &[u64]) -> String {
-        render_grid(counts).lines().nth(1).unwrap().to_string()
-    }
-
-    #[test]
-    fn grid_has_title_line_above_the_squares() {
-        let out = render_grid(&[0, DAILY_GOAL]);
-        assert_eq!(out.lines().next(), Some(GRID_TITLE));
-        assert_eq!(out.lines().count(), 2);
-    }
-
-    #[test]
-    fn shows_filled_square_for_days_meeting_the_goal() {
-        assert_eq!(grid_squares(&[DAILY_GOAL]), "■");
-    }
-
-    #[test]
-    fn shows_dot_for_days_below_the_goal() {
-        assert_eq!(grid_squares(&[DAILY_GOAL - 1]), "·");
-    }
-
-    #[test]
-    fn shows_dot_for_a_day_with_no_replies() {
-        assert_eq!(grid_squares(&[0]), "·");
-    }
-
-    #[test]
-    fn joins_multiple_days_with_a_single_space() {
-        assert_eq!(grid_squares(&[0, DAILY_GOAL, DAILY_GOAL + 1]), "· ■ ■");
-    }
-
-    fn account(handle: &str, avg_impressions: f64, reply_count: usize) -> accounts::AccountRank {
-        accounts::AccountRank {
-            handle: handle.into(),
-            avg_impressions,
-            reply_count,
-        }
-    }
-
-    #[test]
-    fn says_so_when_there_is_no_account_data() {
-        assert_eq!(render_accounts(&[]), "Accounts\nNo data yet.");
-    }
-
-    #[test]
-    fn shows_rank_handle_average_impressions_and_reply_count() {
-        let out = render_accounts(&[account("alice", 150.0, 2)]);
-        assert!(out.starts_with("Accounts\n"));
-        assert!(out.contains("1."));
-        assert!(out.contains("@alice"));
-        assert!(out.contains("150 avg impressions"));
-        assert!(out.contains("2 replies"));
-    }
-
-    fn strip_osc8(s: &str) -> String {
-        let mut out = String::new();
-        let mut rest = s;
-        while let Some(start) = rest.find("\x1b]8;;") {
-            out.push_str(&rest[..start]);
-            let after_start = &rest[start..];
-            match after_start.find("\x1b\\") {
-                Some(end) => rest = &after_start[end + "\x1b\\".len()..],
-                None => {
-                    rest = "";
-                    break;
-                }
-            }
-        }
-        out.push_str(rest);
-        out
-    }
-
-    #[test]
-    fn aligns_columns_across_accounts() {
-        let out = render_accounts(&[account("al", 5.0, 5), account("bobby", 1234.0, 1234)]);
-        let lines: Vec<String> = out.lines().skip(1).map(strip_osc8).collect();
-        assert_eq!(lines[0], "1. @al        5 avg impressions     5 replies");
-        assert_eq!(lines[1], "2. @bobby  1234 avg impressions  1234 replies");
-    }
-
-    #[test]
-    fn rounds_average_impressions_to_nearest_whole_number() {
-        let out = render_accounts(&[account("alice", 12.5, 1), account("bob", 12.4, 1)]);
-        assert!(out.contains("13 avg impressions"));
-        assert!(out.contains("12 avg impressions"));
-    }
-
-    #[test]
-    fn links_the_handle_with_an_osc8_hyperlink() {
-        let out = render_accounts(&[account("alice", 150.0, 2)]);
-        assert!(out.contains("\x1b]8;;https://x.com/alice\x1b\\@alice\x1b]8;;\x1b\\"));
-    }
-
-    #[test]
-    fn preserves_list_order_as_rank() {
-        let out = render_accounts(&[account("first", 100.0, 1), account("second", 50.0, 1)]);
-        let stripped: Vec<String> = out.lines().map(strip_osc8).collect();
-        let first = out.find("@first").unwrap();
-        let second = out.find("@second").unwrap();
-        assert!(first < second);
-        assert!(stripped[1].starts_with("1. @first"));
-        assert!(stripped[2].starts_with("2. @second"));
     }
 }
