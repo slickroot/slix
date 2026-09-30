@@ -2,6 +2,8 @@ use crate::accounts;
 use crate::model::Reply;
 use chrono::TimeZone;
 
+pub(crate) mod table;
+
 pub(crate) const PREVIEW_LIMIT: usize = 50;
 pub(crate) const PREVIEW_WIDTH: usize = PREVIEW_LIMIT + 1;
 

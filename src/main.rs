@@ -4,7 +4,7 @@ mod config;
 mod history;
 mod model;
 mod oauth;
-mod report;
+mod ui;
 mod view;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

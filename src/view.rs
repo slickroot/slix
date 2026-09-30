@@ -2,7 +2,7 @@ use chrono::{DateTime, Local};
 
 use crate::accounts::AccountRank;
 use crate::model::Reply;
-use crate::report;
+use crate::ui;
 
 const DAILY_GOAL: u64 = 5;
 
@@ -81,10 +81,10 @@ impl View for Yesterday {
                 std::cmp::Reverse(reply.created_at),
             )
         });
-        let widths = report::Widths::of(&ranked);
+        let widths = ui::Widths::of(&ranked);
         let lines = ranked
             .iter()
-            .map(|reply| report::render_line(reply, &tz, &widths));
+            .map(|reply| ui::render_line(reply, &tz, &widths));
         std::iter::once(header)
             .chain(lines)
             .collect::<Vec<_>>()
@@ -101,11 +101,11 @@ impl View for TopAccounts {
         if data.ranks.is_empty() {
             return "No data yet.".to_string();
         }
-        let widths = report::AccountWidths::of(&data.ranks);
+        let widths = ui::AccountWidths::of(&data.ranks);
         data.ranks
             .iter()
             .enumerate()
-            .map(|(index, account)| report::render_account_line(index + 1, account, &widths))
+            .map(|(index, account)| ui::render_account_line(index + 1, account, &widths))
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -257,7 +257,7 @@ mod tests {
             },
             fixed_now(),
         );
-        let preview_width = report::PREVIEW_WIDTH;
+        let preview_width = ui::PREVIEW_WIDTH;
         let lines: Vec<&str> = out.lines().skip(1).collect();
         assert!(lines[0].contains(&format!(
             "@bobby  {:<preview_width$}  1234 impressions  1234 likes  1234 profile visits",
