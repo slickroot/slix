@@ -9,10 +9,6 @@ enum Align {
 
 enum Width {
     Auto,
-    #[expect(
-        dead_code,
-        reason = "used by yesterday_table, coming in the next slice"
-    )]
     Fixed(usize),
 }
 
@@ -36,10 +32,6 @@ impl Column {
         }
     }
 
-    #[expect(
-        dead_code,
-        reason = "used by yesterday_table, coming in the next slice"
-    )]
     pub(crate) fn fixed(self, n: usize) -> Column {
         Column {
             width: Width::Fixed(n),

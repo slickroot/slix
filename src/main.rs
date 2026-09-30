@@ -530,7 +530,7 @@ mod tests {
         assert_eq!(
             chunks[2],
             format!(
-                "Yesterday · 1 replies\n{time}  @bob  hello there                                          12 impressions  3 likes  4 profile visits  \x1b]8;;https://x.com/i/status/7\x1b\\[link]\x1b]8;;\x1b\\"
+                "Yesterday · 1 replies\n{time}  @bob  hello there                                          12  impressions  3  likes  4  profile visits  \x1b]8;;https://x.com/i/status/7\x1b\\[link]\x1b]8;;\x1b\\"
             ),
             "{text}"
         );
@@ -669,7 +669,7 @@ mod tests {
         assert_eq!(
             chunks[2],
             format!(
-                "Yesterday · 1 replies\n{time}  @bob  hello there                                          12 impressions  3 likes  4 profile visits  \x1b]8;;https://x.com/i/status/7\x1b\\[link]\x1b]8;;\x1b\\"
+                "Yesterday · 1 replies\n{time}  @bob  hello there                                          12  impressions  3  likes  4  profile visits  \x1b]8;;https://x.com/i/status/7\x1b\\[link]\x1b]8;;\x1b\\"
             ),
             "{text}"
         );

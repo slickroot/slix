@@ -7,6 +7,7 @@ pub(crate) mod table;
 pub(crate) const PREVIEW_LIMIT: usize = 50;
 pub(crate) const PREVIEW_WIDTH: usize = PREVIEW_LIMIT + 1;
 
+#[expect(dead_code, reason = "old replies path, deleted in the next slice")]
 pub(crate) struct Widths {
     handle: usize,
     impressions: usize,
@@ -15,6 +16,7 @@ pub(crate) struct Widths {
 }
 
 impl Widths {
+    #[expect(dead_code, reason = "old replies path, deleted in the next slice")]
     pub(crate) fn of(replies: &[&Reply]) -> Self {
         Widths {
             handle: replies
@@ -41,6 +43,7 @@ impl Widths {
     }
 }
 
+#[expect(dead_code, reason = "old replies path, deleted in the next slice")]
 pub(crate) fn render_line<Tz: TimeZone>(reply: &Reply, tz: &Tz, widths: &Widths) -> String
 where
     Tz::Offset: std::fmt::Display,
@@ -77,6 +80,43 @@ pub(crate) fn link(id: &str) -> String {
 
 pub(crate) fn account_link(handle: &str) -> String {
     format!("\x1b]8;;https://x.com/{handle}\x1b\\@{handle}\x1b]8;;\x1b\\")
+}
+
+pub(crate) fn yesterday_table<Tz: TimeZone>(replies: &[&Reply], tz: &Tz) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    table::Table::new(vec![
+        table::Column::left(),
+        table::Column::left(),
+        table::Column::left().fixed(PREVIEW_WIDTH),
+        table::Column::right(),
+        table::Column::left(),
+        table::Column::right(),
+        table::Column::left(),
+        table::Column::right(),
+        table::Column::left(),
+        table::Column::left(),
+    ])
+    .rows(replies.iter().map(|reply| {
+        vec![
+            reply
+                .created_at
+                .with_timezone(tz)
+                .format("%H:%M")
+                .to_string(),
+            format!("@{}", reply.to_username),
+            preview(&reply.text),
+            reply.impressions.to_string(),
+            "impressions".to_string(),
+            reply.likes.to_string(),
+            "likes".to_string(),
+            reply.profile_visits.to_string(),
+            "profile visits".to_string(),
+            link(&reply.id),
+        ]
+    }))
+    .render()
 }
 
 pub(crate) fn accounts_table(ranks: &[accounts::AccountRank]) -> String {
@@ -128,6 +168,14 @@ mod tests {
             avg_impressions,
             reply_count,
         }
+    }
+
+    #[test]
+    fn puts_the_link_in_the_last_column() {
+        let reply = reply("hi");
+        let out = yesterday_table(&[&reply], &tz());
+        assert!(out.ends_with("\x1b]8;;https://x.com/i/status/123\x1b\\[link]\x1b]8;;\x1b\\"));
+        assert!(table::strip_escapes(&out).ends_with("[link]"));
     }
 
     #[test]

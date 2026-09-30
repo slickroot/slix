@@ -81,12 +81,8 @@ impl View for Yesterday {
                 std::cmp::Reverse(reply.created_at),
             )
         });
-        let widths = ui::Widths::of(&ranked);
-        let lines = ranked
-            .iter()
-            .map(|reply| ui::render_line(reply, &tz, &widths));
         std::iter::once(header)
-            .chain(lines)
+            .chain(std::iter::once(ui::yesterday_table(&ranked, &tz)))
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -211,7 +207,7 @@ mod tests {
             .to_string();
         assert!(out.contains(&time));
         assert!(out.contains("@alice"));
-        assert!(out.contains("42 impressions"));
+        assert!(out.contains("42  impressions"));
     }
 
     #[test]
@@ -236,11 +232,11 @@ mod tests {
         let preview_width = ui::PREVIEW_WIDTH;
         let lines: Vec<&str> = out.lines().skip(1).collect();
         assert!(lines[0].contains(&format!(
-            "@bobby  {:<preview_width$}  1234 impressions  1234 likes  1234 profile visits",
+            "@bobby  {:<preview_width$}  1234  impressions  1234  likes  1234  profile visits",
             "longer text"
         )));
         assert!(lines[1].contains(&format!(
-            "@al     {:<preview_width$}     5 impressions     5 likes     5 profile visits",
+            "@al     {:<preview_width$}     5  impressions     5  likes     5  profile visits",
             "short"
         )));
     }
