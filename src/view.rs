@@ -2,7 +2,7 @@ use chrono::{DateTime, Local};
 
 use crate::accounts::AccountRank;
 use crate::model::Reply;
-use crate::report;
+use crate::ui;
 
 const DAILY_GOAL: u64 = 5;
 
@@ -81,12 +81,8 @@ impl View for Yesterday {
                 std::cmp::Reverse(reply.created_at),
             )
         });
-        let widths = report::Widths::of(&ranked);
-        let lines = ranked
-            .iter()
-            .map(|reply| report::render_line(reply, &tz, &widths));
         std::iter::once(header)
-            .chain(lines)
+            .chain(std::iter::once(ui::yesterday_table(&ranked, &tz)))
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -101,13 +97,7 @@ impl View for TopAccounts {
         if data.ranks.is_empty() {
             return "No data yet.".to_string();
         }
-        let widths = report::AccountWidths::of(&data.ranks);
-        data.ranks
-            .iter()
-            .enumerate()
-            .map(|(index, account)| report::render_account_line(index + 1, account, &widths))
-            .collect::<Vec<_>>()
-            .join("\n")
+        ui::accounts_table(&data.ranks)
     }
 }
 
@@ -200,24 +190,6 @@ mod tests {
         }
     }
 
-    fn strip_osc8(s: &str) -> String {
-        let mut out = String::new();
-        let mut rest = s;
-        while let Some(start) = rest.find("\x1b]8;;") {
-            out.push_str(&rest[..start]);
-            let after_start = &rest[start..];
-            match after_start.find("\x1b\\") {
-                Some(end) => rest = &after_start[end + "\x1b\\".len()..],
-                None => {
-                    rest = "";
-                    break;
-                }
-            }
-        }
-        out.push_str(rest);
-        out
-    }
-
     #[test]
     fn shows_local_time_handle_and_impressions() {
         let fixture = reply("hi");
@@ -235,7 +207,7 @@ mod tests {
             .to_string();
         assert!(out.contains(&time));
         assert!(out.contains("@alice"));
-        assert!(out.contains("42 impressions"));
+        assert!(out.contains("42  impressions"));
     }
 
     #[test]
@@ -257,14 +229,14 @@ mod tests {
             },
             fixed_now(),
         );
-        let preview_width = report::PREVIEW_WIDTH;
+        let preview_width = ui::PREVIEW_WIDTH;
         let lines: Vec<&str> = out.lines().skip(1).collect();
         assert!(lines[0].contains(&format!(
-            "@bobby  {:<preview_width$}  1234 impressions  1234 likes  1234 profile visits",
+            "@bobby  {:<preview_width$}  1234  impressions  1234  likes  1234  profile visits",
             "longer text"
         )));
         assert!(lines[1].contains(&format!(
-            "@al     {:<preview_width$}     5 impressions     5 likes     5 profile visits",
+            "@al     {:<preview_width$}     5  impressions     5  likes     5  profile visits",
             "short"
         )));
     }
@@ -410,8 +382,8 @@ mod tests {
         assert_eq!(TopAccounts.title(), "Accounts");
         assert!(out.contains("1."));
         assert!(out.contains("@alice"));
-        assert!(out.contains("150 avg impressions"));
-        assert!(out.contains("2 replies"));
+        assert!(out.contains("150  avg impressions"));
+        assert!(out.contains("2  replies"));
     }
 
     #[test]
@@ -423,9 +395,9 @@ mod tests {
             },
             fixed_now(),
         );
-        let lines: Vec<String> = out.lines().map(strip_osc8).collect();
-        assert_eq!(lines[0], "1. @al        5 avg impressions     5 replies");
-        assert_eq!(lines[1], "2. @bobby  1234 avg impressions  1234 replies");
+        let lines: Vec<String> = out.lines().map(ui::table::strip_escapes).collect();
+        assert_eq!(lines[0], "1.  @al        5  avg impressions     5  replies");
+        assert_eq!(lines[1], "2.  @bobby  1234  avg impressions  1234  replies");
     }
 
     #[test]
@@ -437,8 +409,8 @@ mod tests {
             },
             fixed_now(),
         );
-        assert!(out.contains("13 avg impressions"));
-        assert!(out.contains("12 avg impressions"));
+        assert!(out.contains("13  avg impressions"));
+        assert!(out.contains("12  avg impressions"));
     }
 
     #[test]
@@ -462,11 +434,11 @@ mod tests {
             },
             fixed_now(),
         );
-        let stripped: Vec<String> = out.lines().map(strip_osc8).collect();
+        let stripped: Vec<String> = out.lines().map(ui::table::strip_escapes).collect();
         let first = out.find("@first").unwrap();
         let second = out.find("@second").unwrap();
         assert!(first < second);
-        assert!(stripped[0].starts_with("1. @first"));
-        assert!(stripped[1].starts_with("2. @second"));
+        assert!(stripped[0].starts_with("1.  @first"));
+        assert!(stripped[1].starts_with("2.  @second"));
     }
 }
