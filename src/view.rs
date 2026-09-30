@@ -101,13 +101,7 @@ impl View for TopAccounts {
         if data.ranks.is_empty() {
             return "No data yet.".to_string();
         }
-        let widths = ui::AccountWidths::of(&data.ranks);
-        data.ranks
-            .iter()
-            .enumerate()
-            .map(|(index, account)| ui::render_account_line(index + 1, account, &widths))
-            .collect::<Vec<_>>()
-            .join("\n")
+        ui::accounts_table(&data.ranks)
     }
 }
 
@@ -198,24 +192,6 @@ mod tests {
             avg_impressions,
             reply_count,
         }
-    }
-
-    fn strip_osc8(s: &str) -> String {
-        let mut out = String::new();
-        let mut rest = s;
-        while let Some(start) = rest.find("\x1b]8;;") {
-            out.push_str(&rest[..start]);
-            let after_start = &rest[start..];
-            match after_start.find("\x1b\\") {
-                Some(end) => rest = &after_start[end + "\x1b\\".len()..],
-                None => {
-                    rest = "";
-                    break;
-                }
-            }
-        }
-        out.push_str(rest);
-        out
     }
 
     #[test]
@@ -410,8 +386,8 @@ mod tests {
         assert_eq!(TopAccounts.title(), "Accounts");
         assert!(out.contains("1."));
         assert!(out.contains("@alice"));
-        assert!(out.contains("150 avg impressions"));
-        assert!(out.contains("2 replies"));
+        assert!(out.contains("150  avg impressions"));
+        assert!(out.contains("2  replies"));
     }
 
     #[test]
@@ -423,9 +399,9 @@ mod tests {
             },
             fixed_now(),
         );
-        let lines: Vec<String> = out.lines().map(strip_osc8).collect();
-        assert_eq!(lines[0], "1. @al        5 avg impressions     5 replies");
-        assert_eq!(lines[1], "2. @bobby  1234 avg impressions  1234 replies");
+        let lines: Vec<String> = out.lines().map(ui::table::strip_escapes).collect();
+        assert_eq!(lines[0], "1.  @al        5  avg impressions     5  replies");
+        assert_eq!(lines[1], "2.  @bobby  1234  avg impressions  1234  replies");
     }
 
     #[test]
@@ -437,8 +413,8 @@ mod tests {
             },
             fixed_now(),
         );
-        assert!(out.contains("13 avg impressions"));
-        assert!(out.contains("12 avg impressions"));
+        assert!(out.contains("13  avg impressions"));
+        assert!(out.contains("12  avg impressions"));
     }
 
     #[test]
@@ -462,11 +438,11 @@ mod tests {
             },
             fixed_now(),
         );
-        let stripped: Vec<String> = out.lines().map(strip_osc8).collect();
+        let stripped: Vec<String> = out.lines().map(ui::table::strip_escapes).collect();
         let first = out.find("@first").unwrap();
         let second = out.find("@second").unwrap();
         assert!(first < second);
-        assert!(stripped[0].starts_with("1. @first"));
-        assert!(stripped[1].starts_with("2. @second"));
+        assert!(stripped[0].starts_with("1.  @first"));
+        assert!(stripped[1].starts_with("2.  @second"));
     }
 }

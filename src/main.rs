@@ -536,7 +536,7 @@ mod tests {
         );
         assert_eq!(
             chunks[3],
-            "Accounts\n1. \x1b]8;;https://x.com/bob\x1b\\@bob\x1b]8;;\x1b\\  12 avg impressions  1 replies",
+            "Accounts\n1.  \x1b]8;;https://x.com/bob\x1b\\@bob\x1b]8;;\x1b\\  12  avg impressions  1  replies",
             "{text}"
         );
         assert_eq!(chunks[4], "Today: 0 of 5 replies (5 to go)\n", "{text}");
@@ -675,7 +675,7 @@ mod tests {
         );
         assert_eq!(
             chunks[3],
-            "Accounts\n1. \x1b]8;;https://x.com/alice\x1b\\@alice\x1b]8;;\x1b\\  20 avg impressions  1 replies\n2. \x1b]8;;https://x.com/bob\x1b\\@bob\x1b]8;;\x1b\\    12 avg impressions  1 replies",
+            "Accounts\n1.  \x1b]8;;https://x.com/alice\x1b\\@alice\x1b]8;;\x1b\\  20  avg impressions  1  replies\n2.  \x1b]8;;https://x.com/bob\x1b\\@bob\x1b]8;;\x1b\\    12  avg impressions  1  replies",
             "{text}"
         );
         assert_eq!(chunks[4], "Today: 0 of 5 replies (5 to go)\n", "{text}");

@@ -75,56 +75,30 @@ pub(crate) fn link(id: &str) -> String {
     format!("\x1b]8;;https://x.com/i/status/{id}\x1b\\[link]\x1b]8;;\x1b\\")
 }
 
-pub(crate) struct AccountWidths {
-    rank: usize,
-    handle: usize,
-    avg_impressions: usize,
-    reply_count: usize,
-}
-
-impl AccountWidths {
-    pub(crate) fn of(ranks: &[accounts::AccountRank]) -> Self {
-        AccountWidths {
-            rank: ranks.len().to_string().len(),
-            handle: ranks
-                .iter()
-                .map(|account| account.handle.chars().count() + 1)
-                .max()
-                .unwrap_or(0),
-            avg_impressions: ranks
-                .iter()
-                .map(|account| (account.avg_impressions.round() as i64).to_string().len())
-                .max()
-                .unwrap_or(0),
-            reply_count: ranks
-                .iter()
-                .map(|account| account.reply_count.to_string().len())
-                .max()
-                .unwrap_or(0),
-        }
-    }
-}
-
-pub(crate) fn render_account_line(
-    rank: usize,
-    account: &accounts::AccountRank,
-    widths: &AccountWidths,
-) -> String {
-    let rank_width = widths.rank;
-    let avg_width = widths.avg_impressions;
-    let reply_width = widths.reply_count;
-    let handle_text = format!("@{}", account.handle);
-    let handle_padding = " ".repeat(widths.handle.saturating_sub(handle_text.chars().count()));
-    format!(
-        "{rank:>rank_width$}. {}{handle_padding}  {:>avg_width$} avg impressions  {:>reply_width$} replies",
-        account_link(&account.handle),
-        account.avg_impressions.round() as i64,
-        account.reply_count
-    )
-}
-
 pub(crate) fn account_link(handle: &str) -> String {
     format!("\x1b]8;;https://x.com/{handle}\x1b\\@{handle}\x1b]8;;\x1b\\")
+}
+
+pub(crate) fn accounts_table(ranks: &[accounts::AccountRank]) -> String {
+    table::Table::new(vec![
+        table::Column::right(),
+        table::Column::left(),
+        table::Column::right(),
+        table::Column::left(),
+        table::Column::right(),
+        table::Column::left(),
+    ])
+    .rows(ranks.iter().enumerate().map(|(index, account)| {
+        vec![
+            format!("{}.", index + 1),
+            account_link(&account.handle),
+            (account.avg_impressions.round() as i64).to_string(),
+            "avg impressions".to_string(),
+            account.reply_count.to_string(),
+            "replies".to_string(),
+        ]
+    }))
+    .render()
 }
 
 #[cfg(test)]
@@ -146,6 +120,25 @@ mod tests {
 
     fn tz() -> FixedOffset {
         FixedOffset::east_opt(2 * 3600).unwrap()
+    }
+
+    fn account(handle: &str, avg_impressions: f64, reply_count: usize) -> accounts::AccountRank {
+        accounts::AccountRank {
+            handle: handle.into(),
+            avg_impressions,
+            reply_count,
+        }
+    }
+
+    #[test]
+    fn renders_the_rank_with_its_dot() {
+        let ranks = vec![account("alice", 150.0, 2), account("bob", 100.0, 1)];
+        let lines: Vec<String> = accounts_table(&ranks)
+            .lines()
+            .map(table::strip_escapes)
+            .collect();
+        assert_eq!(lines[0], "1.  @alice  150  avg impressions  2  replies");
+        assert_eq!(lines[1], "2.  @bob    100  avg impressions  1  replies");
     }
 
     #[test]
