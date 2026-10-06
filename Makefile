@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := build
 
-.PHONY: build release fmt clippy test
+.PHONY: build release fmt clippy test test-chrome
 
 build:
 	nix develop --command cargo build
@@ -17,3 +17,7 @@ clippy:
 
 test:
 	nix develop --command cargo test
+	nix develop --command node --test "chrome/*.test.js"
+
+test-chrome:
+	nix develop --command node --test "chrome/*.test.js"
