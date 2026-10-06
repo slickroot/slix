@@ -1,5 +1,5 @@
 export const TAKEOFF_MAX_AGE_MS = 2 * 60 * 60 * 1000;
-export const TAKEOFF_VIEWS_PER_MIN = 100;
+export const TAKEOFF_VIEWS_PER_HOUR = 1000;
 
 const VIEWS_PATTERN = /(\d[\d,]*)\s+views?\b/i;
 
@@ -31,6 +31,6 @@ export function isTakingOff(datetime, views, now) {
     return false;
   }
 
-  const minutes = Math.max(age / 60000, 1);
-  return views / minutes >= TAKEOFF_VIEWS_PER_MIN;
+  const hours = Math.max(age / 3600000, 1 / 60);
+  return views / hours >= TAKEOFF_VIEWS_PER_HOUR;
 }

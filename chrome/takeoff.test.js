@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { TAKEOFF_MAX_AGE_MS, TAKEOFF_VIEWS_PER_MIN, isTakingOff, parseViews } from "./takeoff.js";
+import { TAKEOFF_MAX_AGE_MS, TAKEOFF_VIEWS_PER_HOUR, isTakingOff, parseViews } from "./takeoff.js";
 
 const NOW = Date.parse("2026-01-01T12:00:00Z");
 
@@ -36,13 +36,16 @@ test("parseViews", async (t) => {
 
 test("isTakingOff", async (t) => {
   const at = (ms) => new Date(NOW - ms).toISOString();
+  const hours = (ms) => Math.max(ms / 3600000, 1 / 60);
+  const atThreshold = (ms) => Math.ceil(TAKEOFF_VIEWS_PER_HOUR * hours(ms));
+  const belowThreshold = (ms) => Math.ceil(TAKEOFF_VIEWS_PER_HOUR * hours(ms)) - 1;
 
-  await t.test("is true at the views per minute boundary", () => {
-    assert.equal(isTakingOff(at(40 * 60000), 4000, NOW), true);
+  await t.test("is true at the views per hour boundary", () => {
+    assert.equal(isTakingOff(at(40 * 60000), atThreshold(40 * 60000), NOW), true);
   });
 
-  await t.test("is false just below the views per minute boundary", () => {
-    assert.equal(isTakingOff(at(40 * 60000), 3999, NOW), false);
+  await t.test("is false just below the views per hour boundary", () => {
+    assert.equal(isTakingOff(at(40 * 60000), belowThreshold(40 * 60000), NOW), false);
   });
 
   await t.test("is true just under the max age with plenty of views", () => {
@@ -57,21 +60,21 @@ test("isTakingOff", async (t) => {
     assert.equal(isTakingOff(at(TAKEOFF_MAX_AGE_MS + 60000), 1000000, NOW), false);
   });
 
-  await t.test("is false seconds old below the views per minute floor", () => {
-    assert.equal(isTakingOff(at(10000), TAKEOFF_VIEWS_PER_MIN - 1, NOW), false);
+  await t.test("is false seconds old below the one minute floor rate", () => {
+    assert.equal(isTakingOff(at(10000), belowThreshold(10000), NOW), false);
   });
 
-  await t.test("is true seconds old at the views per minute floor", () => {
-    assert.equal(isTakingOff(at(10000), TAKEOFF_VIEWS_PER_MIN, NOW), true);
+  await t.test("is true seconds old at the one minute floor rate", () => {
+    assert.equal(isTakingOff(at(10000), atThreshold(10000), NOW), true);
   });
 
-  await t.test("is true for a future datetime at the floor", () => {
-    assert.equal(isTakingOff(new Date(NOW + 60000).toISOString(), TAKEOFF_VIEWS_PER_MIN, NOW), true);
+  await t.test("is true for a future datetime at the floor rate", () => {
+    assert.equal(isTakingOff(new Date(NOW + 60000).toISOString(), atThreshold(-60000), NOW), true);
   });
 
-  await t.test("is false for a future datetime below the floor", () => {
+  await t.test("is false for a future datetime below the floor rate", () => {
     assert.equal(
-      isTakingOff(new Date(NOW + 60000).toISOString(), TAKEOFF_VIEWS_PER_MIN - 1, NOW),
+      isTakingOff(new Date(NOW + 60000).toISOString(), belowThreshold(-60000), NOW),
       false,
     );
   });
