@@ -3,6 +3,10 @@
   "name": "slix",
   "version": "0.1.0",
   "description": "slix in the browser.",
+  "icons": { "128": "icon-128.png" },
+  "background": { "service_worker": "background.js", "type": "module" },
+  "permissions": ["alarms", "notifications", "storage"],
+  "host_permissions": ["https://x.com/*", "https://twitter.com/*"],
   "content_scripts": [
     {
       "matches": ["https://x.com/*", "https://twitter.com/*"],
@@ -11,7 +15,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["main.js", "fresh.js", "takeoff.js"],
+      "resources": ["main.js", "fresh.js", "takeoff.js", "refresh.js", "ping.js"],
       "matches": ["https://x.com/*", "https://twitter.com/*"]
     }
   ]

@@ -1,4 +1,6 @@
 import { isFresh, isHomeTimeline } from "./fresh.js";
+import { statusId } from "./ping.js";
+import { shouldReload } from "./refresh.js";
 import { isTakingOff, parseViews } from "./takeoff.js";
 
 const TWEET = 'article[data-testid="tweet"]';
@@ -35,6 +37,20 @@ function dotContainer(article) {
   return container;
 }
 
+function reportTakeoff(article, time) {
+  const href = time.closest("a")?.getAttribute("href");
+  const id = statusId(href);
+  if (!id) return;
+
+  chrome.runtime.sendMessage({
+    type: "takeoff",
+    id,
+    url: new URL(href, location.origin).href,
+    author: article.querySelector('[data-testid="User-Name"]')?.querySelector("span")?.textContent,
+    text: article.querySelector('[data-testid="tweetText"]')?.innerText,
+  });
+}
+
 function scan() {
   if (!isHomeTimeline(location.href)) return;
 
@@ -55,9 +71,14 @@ function scan() {
     if (!article.querySelector("[data-slix-takeoff]") && isTakingOff(datetime, parseViews(label), now)) {
       const dots = article.querySelector("[data-slix-dots]") || dotContainer(article);
       dots.appendChild(dot("data-slix-takeoff", "#ff7a00", 0));
+      reportTakeoff(article, time);
     }
   }
 }
 
 scan();
 new MutationObserver(scan).observe(document.body, { childList: true, subtree: true });
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (message?.type === "refresh" && shouldReload(location.href, document.hasFocus())) location.reload();
+});
