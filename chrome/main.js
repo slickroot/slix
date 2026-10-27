@@ -46,8 +46,8 @@ function reportTakeoff(article, time) {
     type: "takeoff",
     id,
     url: new URL(href, location.origin).href,
-    author: article.querySelector('[data-testid="User-Name"]')?.querySelector("span")?.textContent ?? "",
-    text: article.querySelector('[data-testid="tweetText"]')?.innerText ?? "",
+    author: article.querySelector('[data-testid="User-Name"]')?.querySelector("span")?.textContent,
+    text: article.querySelector('[data-testid="tweetText"]')?.innerText,
   });
 }
 
