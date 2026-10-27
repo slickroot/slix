@@ -4,7 +4,7 @@ mod config;
 mod history;
 mod model;
 mod oauth;
-mod report;
+mod ui;
 mod view;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -530,13 +530,13 @@ mod tests {
         assert_eq!(
             chunks[2],
             format!(
-                "Yesterday · 1 replies\n{time}  @bob  hello there                                          12 impressions  3 likes  4 profile visits  \x1b]8;;https://x.com/i/status/7\x1b\\[link]\x1b]8;;\x1b\\"
+                "Yesterday · 1 replies\n{time}  @bob  hello there                                          12  impressions  3  likes  4  profile visits  \x1b]8;;https://x.com/i/status/7\x1b\\[link]\x1b]8;;\x1b\\"
             ),
             "{text}"
         );
         assert_eq!(
             chunks[3],
-            "Accounts\n1. \x1b]8;;https://x.com/bob\x1b\\@bob\x1b]8;;\x1b\\  12 avg impressions  1 replies",
+            "Accounts\n1.  \x1b]8;;https://x.com/bob\x1b\\@bob\x1b]8;;\x1b\\  12  avg impressions  1  replies",
             "{text}"
         );
         assert_eq!(chunks[4], "Today: 0 of 5 replies (5 to go)\n", "{text}");
@@ -669,13 +669,13 @@ mod tests {
         assert_eq!(
             chunks[2],
             format!(
-                "Yesterday · 1 replies\n{time}  @bob  hello there                                          12 impressions  3 likes  4 profile visits  \x1b]8;;https://x.com/i/status/7\x1b\\[link]\x1b]8;;\x1b\\"
+                "Yesterday · 1 replies\n{time}  @bob  hello there                                          12  impressions  3  likes  4  profile visits  \x1b]8;;https://x.com/i/status/7\x1b\\[link]\x1b]8;;\x1b\\"
             ),
             "{text}"
         );
         assert_eq!(
             chunks[3],
-            "Accounts\n1. \x1b]8;;https://x.com/alice\x1b\\@alice\x1b]8;;\x1b\\  20 avg impressions  1 replies\n2. \x1b]8;;https://x.com/bob\x1b\\@bob\x1b]8;;\x1b\\    12 avg impressions  1 replies",
+            "Accounts\n1.  \x1b]8;;https://x.com/alice\x1b\\@alice\x1b]8;;\x1b\\  20  avg impressions  1  replies\n2.  \x1b]8;;https://x.com/bob\x1b\\@bob\x1b]8;;\x1b\\    12  avg impressions  1  replies",
             "{text}"
         );
         assert_eq!(chunks[4], "Today: 0 of 5 replies (5 to go)\n", "{text}");

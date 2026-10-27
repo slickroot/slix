@@ -1,0 +1,229 @@
+use crate::accounts;
+use crate::model::Reply;
+use chrono::TimeZone;
+
+pub(crate) mod table;
+
+pub(crate) const PREVIEW_LIMIT: usize = 50;
+pub(crate) const PREVIEW_WIDTH: usize = PREVIEW_LIMIT + 1;
+
+pub(crate) fn preview(text: &str) -> String {
+    let single_line = text.replace(['\r', '\n'], " ");
+    if single_line.chars().count() > PREVIEW_LIMIT {
+        let cut: String = single_line.chars().take(PREVIEW_LIMIT).collect();
+        format!("{cut}…")
+    } else {
+        single_line
+    }
+}
+
+pub(crate) fn link(id: &str) -> String {
+    format!("\x1b]8;;https://x.com/i/status/{id}\x1b\\[link]\x1b]8;;\x1b\\")
+}
+
+pub(crate) fn account_link(handle: &str) -> String {
+    format!("\x1b]8;;https://x.com/{handle}\x1b\\@{handle}\x1b]8;;\x1b\\")
+}
+
+pub(crate) fn yesterday_table<Tz: TimeZone>(replies: &[&Reply], tz: &Tz) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    table::Table::new(vec![
+        table::Column::left(),
+        table::Column::left(),
+        table::Column::left().fixed(PREVIEW_WIDTH),
+        table::Column::right(),
+        table::Column::left(),
+        table::Column::right(),
+        table::Column::left(),
+        table::Column::right(),
+        table::Column::left(),
+        table::Column::left(),
+    ])
+    .rows(replies.iter().map(|reply| {
+        vec![
+            reply
+                .created_at
+                .with_timezone(tz)
+                .format("%H:%M")
+                .to_string(),
+            format!("@{}", reply.to_username),
+            preview(&reply.text),
+            reply.impressions.to_string(),
+            "impressions".to_string(),
+            reply.likes.to_string(),
+            "likes".to_string(),
+            reply.profile_visits.to_string(),
+            "profile visits".to_string(),
+            link(&reply.id),
+        ]
+    }))
+    .render()
+}
+
+pub(crate) fn accounts_table(ranks: &[accounts::AccountRank]) -> String {
+    table::Table::new(vec![
+        table::Column::right(),
+        table::Column::left(),
+        table::Column::right(),
+        table::Column::left(),
+        table::Column::right(),
+        table::Column::left(),
+    ])
+    .rows(ranks.iter().enumerate().map(|(index, account)| {
+        vec![
+            format!("{}.", index + 1),
+            account_link(&account.handle),
+            (account.avg_impressions.round() as i64).to_string(),
+            "avg impressions".to_string(),
+            account.reply_count.to_string(),
+            "replies".to_string(),
+        ]
+    }))
+    .render()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{DateTime, FixedOffset, Utc};
+
+    fn reply(text: &str) -> Reply {
+        Reply {
+            id: "123".into(),
+            created_at: "2026-03-10T23:30:00Z".parse::<DateTime<Utc>>().unwrap(),
+            text: text.into(),
+            to_username: "alice".into(),
+            impressions: 42,
+            likes: 0,
+            profile_visits: 0,
+        }
+    }
+
+    fn tz() -> FixedOffset {
+        FixedOffset::east_opt(2 * 3600).unwrap()
+    }
+
+    fn account(handle: &str, avg_impressions: f64, reply_count: usize) -> accounts::AccountRank {
+        accounts::AccountRank {
+            handle: handle.into(),
+            avg_impressions,
+            reply_count,
+        }
+    }
+
+    #[test]
+    fn puts_the_link_in_the_last_column() {
+        let reply = reply("hi");
+        let out = yesterday_table(&[&reply], &tz());
+        assert!(out.ends_with("\x1b]8;;https://x.com/i/status/123\x1b\\[link]\x1b]8;;\x1b\\"));
+        assert!(table::strip_escapes(&out).ends_with("[link]"));
+    }
+
+    #[test]
+    fn renders_the_rank_with_its_dot() {
+        let ranks = vec![account("alice", 150.0, 2), account("bob", 100.0, 1)];
+        let lines: Vec<String> = accounts_table(&ranks)
+            .lines()
+            .map(table::strip_escapes)
+            .collect();
+        assert_eq!(lines[0], "1.  @alice  150  avg impressions  2  replies");
+        assert_eq!(lines[1], "2.  @bob    100  avg impressions  1  replies");
+    }
+
+    #[test]
+    fn collapses_newlines_in_preview() {
+        let reply = reply("a\nb\r\nc");
+        let out = yesterday_table(&[&reply], &tz());
+        assert!(out.contains("a b  c"));
+        assert_eq!(out.lines().count(), 1);
+    }
+
+    #[test]
+    fn keeps_preview_at_the_limit() {
+        let text = "x".repeat(PREVIEW_LIMIT);
+        let reply = reply(&text);
+        let out = yesterday_table(&[&reply], &tz());
+        assert!(out.contains(&text));
+        assert!(!out.contains('…'));
+    }
+
+    #[test]
+    fn cuts_preview_over_the_limit_with_ellipsis() {
+        let text = "x".repeat(PREVIEW_LIMIT + 1);
+        let reply = reply(&text);
+        let out = yesterday_table(&[&reply], &tz());
+        assert!(out.contains(&format!("{}…", "x".repeat(PREVIEW_LIMIT))));
+        assert!(!out.contains(&text));
+    }
+
+    #[test]
+    fn links_with_osc8_hyperlink() {
+        let reply = reply("hi");
+        let out = yesterday_table(&[&reply], &tz());
+        assert!(out.ends_with("\x1b]8;;https://x.com/i/status/123\x1b\\[link]\x1b]8;;\x1b\\"));
+    }
+
+    fn reply_with_likes(likes: u64) -> Reply {
+        Reply {
+            likes,
+            ..reply("hi")
+        }
+    }
+
+    fn reply_with_profile_visits(profile_visits: u64) -> Reply {
+        Reply {
+            profile_visits,
+            ..reply("hi")
+        }
+    }
+
+    #[test]
+    fn shows_zero_profile_visits() {
+        let reply = reply_with_profile_visits(0);
+        let out = yesterday_table(&[&reply], &tz());
+        assert!(out.contains("0  profile visits"));
+    }
+
+    #[test]
+    fn uses_the_word_visits_for_a_single_profile_visit() {
+        let reply = reply_with_profile_visits(1);
+        let out = yesterday_table(&[&reply], &tz());
+        assert!(out.contains("1  profile visits"));
+    }
+
+    #[test]
+    fn puts_profile_visits_between_likes_and_link() {
+        let reply = reply_with_profile_visits(7);
+        let out = yesterday_table(&[&reply], &tz());
+        let likes = out.find("0  likes").unwrap();
+        let visits = out.find("7  profile visits").unwrap();
+        let link = out.find("[link]").unwrap();
+        assert!(likes < visits && visits < link);
+    }
+
+    #[test]
+    fn shows_zero_likes() {
+        let reply = reply_with_likes(0);
+        let out = yesterday_table(&[&reply], &tz());
+        assert!(out.contains("0  likes"));
+    }
+
+    #[test]
+    fn uses_the_word_likes_for_a_single_like() {
+        let reply = reply_with_likes(1);
+        let out = yesterday_table(&[&reply], &tz());
+        assert!(out.contains("1  likes"));
+    }
+
+    #[test]
+    fn puts_likes_between_impressions_and_link() {
+        let reply = reply_with_likes(7);
+        let out = yesterday_table(&[&reply], &tz());
+        let impressions = out.find("42  impressions").unwrap();
+        let likes = out.find("7  likes").unwrap();
+        let link = out.find("[link]").unwrap();
+        assert!(impressions < likes && likes < link);
+    }
+}
