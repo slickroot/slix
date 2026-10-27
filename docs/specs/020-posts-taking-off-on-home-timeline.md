@@ -2,12 +2,12 @@
 
 ## User Story
 
-Marouane opens X and lands on the home timeline. Scrolling through, a small orange dot sits in the top right corner of a post from 40 minutes ago that's already pulling over 100 views a minute. Marouane jumps in with a reply while the post is taking off, and people reading the thread click through to Marouane's profile and follow.
+Marouane opens X and lands on the home timeline. Scrolling through, a small orange dot sits in the top right corner of a post from 40 minutes ago that's already pulling over 1000 views an hour. Marouane jumps in with a reply while the post is taking off, and people reading the thread click through to Marouane's profile and follow.
 
 ## Acceptance Criteria
 
-- On the X home timeline, every post that is less than 2 hours old and averaging 100 or more views per minute since it was posted shows an orange dot in its top right corner.
-- Views per minute = the post's view count ÷ minutes since it was posted.
+- On the X home timeline, every post that is less than 2 hours old and averaging 1000 or more views per hour since it was posted shows an orange dot in its top right corner.
+- Views per hour = the post's view count ÷ hours since it was posted.
 - The dot has no text.
 - Posts 2 hours old or older show no orange dot, however fast they're getting views.
 - When a post also has the green fresh dot, the orange dot sits just to the left of the green one.
@@ -35,13 +35,13 @@ Builds on spec 019: a new rule module in the **pure core** and a few changes to 
 Stateless; knows only the rules.
 
 - `TAKEOFF_MAX_AGE_MS = 2 * 60 * 60 * 1000`
-- `TAKEOFF_VIEWS_PER_MIN = 100`
+- `TAKEOFF_VIEWS_PER_HOUR = 1000`
 - `parseViews(label)` reads the action bar's `aria-label`, e.g. `"48 replies, 5 reposts, 271 likes, 17 bookmarks, 30107 views"`, and returns the view count as an integer (`30107`). It matches `/(\d[\d,]*)\s+views?\b/i` and strips commas. It returns `null` when there is no match: views are hidden, the post is an ad, the UI isn't in English, or the post has 0 views (X leaves the part out). It also returns `null` for an empty or missing label.
 - `isTakingOff(datetime, views, now)` returns `true` when:
   - `views` is a number (not `null`), and
   - `datetime` parses, and
   - `now - published < TAKEOFF_MAX_AGE_MS` (exactly 2 h does not qualify), and
-  - `views / minutes >= TAKEOFF_VIEWS_PER_MIN` (exactly 100 qualifies), where `minutes = max((now - published) / 60000, 1)`.
+  - `views / hours >= TAKEOFF_VIEWS_PER_HOUR` (exactly 1000 qualifies), where `hours = max((now - published) / 3600000, 1 / 60)`.
 
   The 1-minute floor keeps posts only a few seconds old from qualifying on a handful of views and avoids dividing by zero. Future timestamps (from clock skew) fall to the floor too. `now` is passed in (ms since epoch) to keep the function deterministic.
 
@@ -63,12 +63,13 @@ Collaborates with `fresh.js`, `takeoff.js`, and the page DOM. Startup, the `Muta
 ### Tests (`takeoff.test.js`)
 
 - `parseViews`: `30107` for the full group label above; `1` for `"1 view"`; `12345` for `"12,345 views"`; `null` for a label with no views part, for `""`, and for `undefined`.
-- `isTakingOff` (with `NOW` fixed):
-  - True at 40 min with 4000 views (exactly 100/min).
-  - False at 40 min with 3999 views.
+- `isTakingOff` (with `NOW` fixed), view counts derived from `TAKEOFF_VIEWS_PER_HOUR` and the elapsed hours:
+  - True at 40 min with 667 views (1000.5/hour), false at 40 min with 666 views (999/hour).
   - True just under 2 h with plenty of views; false at exactly 2 h and beyond, however many views.
-  - At 10 s old: false with 99 views, true with 100 (1-minute floor).
-  - A future datetime uses the floor: true with 100 views, false with 99.
+  - At 10 s old: false with 16 views, true with 17 (1-minute floor).
+  - A future datetime uses the floor: true with 17 views, false with 16.
   - False for `null` views, an unparseable datetime, an empty datetime, or a missing datetime.
 
 The shell (dot container, ordering, live re-judging) is verified by hand on x.com/home.
+
+Amendment, 6 October 2026: reviewing PR #19 lowered the threshold from 100 views per minute to 1000 views per hour (~16.7 per minute), so posts that are picking up real but not viral traffic get the dot too.
