@@ -3,6 +3,9 @@
   "name": "slix",
   "version": "0.1.0",
   "description": "slix in the browser.",
+  "background": { "service_worker": "background.js", "type": "module" },
+  "permissions": ["alarms"],
+  "host_permissions": ["https://x.com/*", "https://twitter.com/*"],
   "content_scripts": [
     {
       "matches": ["https://x.com/*", "https://twitter.com/*"],
@@ -11,7 +14,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["main.js", "fresh.js", "takeoff.js"],
+      "resources": ["main.js", "fresh.js", "takeoff.js", "refresh.js"],
       "matches": ["https://x.com/*", "https://twitter.com/*"]
     }
   ]

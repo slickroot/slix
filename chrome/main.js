@@ -1,4 +1,5 @@
 import { isFresh, isHomeTimeline } from "./fresh.js";
+import { shouldReload } from "./refresh.js";
 import { isTakingOff, parseViews } from "./takeoff.js";
 
 const TWEET = 'article[data-testid="tweet"]';
@@ -61,3 +62,7 @@ function scan() {
 
 scan();
 new MutationObserver(scan).observe(document.body, { childList: true, subtree: true });
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (message?.type === "refresh" && shouldReload(location.href, document.hasFocus())) location.reload();
+});
